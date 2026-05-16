@@ -1,0 +1,1666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cast Smart – STL Fishing Guide</title>
+<meta name="theme-color" content="#0d1b1e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cast Smart">
+<meta name="description" content="STL area fishing guide — local spots, lure recommendations, and conditions.">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d1b1e; --surface: #132227; --surface2: #1a2e34;
+    --accent: #4fc97e; --accent2: #f5a623; --water: #1e6a7a;
+    --text: #e8f4f0; --muted: #7a9ea6; --danger: #e05c5c; --border: #254a54;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 60px; }
+  body::before { content:''; position:fixed; inset:0; background: radial-gradient(ellipse at 80% 0%, rgba(31,106,122,0.18) 0%, transparent 60%), radial-gradient(ellipse at 10% 90%, rgba(79,201,126,0.08) 0%, transparent 50%); pointer-events:none; z-index:0; }
+  .app { position:relative; z-index:1; max-width:480px; margin:0 auto; padding:0 16px; }
+  header { padding:28px 0 20px; text-align:center; }
+  .logo { font-family:'Bebas Neue',sans-serif; font-size:42px; letter-spacing:3px; color:var(--accent); line-height:1; }
+  .logo span { color:var(--accent2); }
+  .tagline { font-size:12px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-top:4px; }
+  /* Wizard */
+  .wizard-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; min-height:32px; }
+  .back-btn { background:none; border:none; color:var(--muted); font-size:14px; font-family:'DM Sans',sans-serif; cursor:pointer; padding:4px 0; -webkit-tap-highlight-color:transparent; }
+  .back-btn:hover { color:var(--text); }
+  .step-dots { display:flex; gap:7px; align-items:center; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--border); transition:all 0.3s; }
+  .dot.active { background:var(--accent); width:22px; border-radius:50px; }
+  .dot.done { background:var(--accent); opacity:0.45; }
+  .wizard-screen { display:none; animation:fadeUp 0.35s ease both; }
+  .wizard-screen.visible { display:block; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+  .step { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:20px; margin-bottom:14px; }
+  .step-label { font-size:10px; text-transform:uppercase; letter-spacing:2px; color:var(--accent); margin-bottom:8px; font-weight:600; }
+  .step-title { font-family:'Bebas Neue',sans-serif; font-size:22px; letter-spacing:1px; margin-bottom:14px; }
+
+  /* Recent weather */
+  .recent-weather-grid { display:flex; flex-direction:column; gap:8px; }
+  .rw-card { display:flex; align-items:flex-start; gap:12px; background:var(--surface2); border:1.5px solid var(--border); border-radius:12px; padding:13px 14px; cursor:pointer; transition:all 0.15s; -webkit-tap-highlight-color:transparent; }
+  .rw-card:hover { border-color:var(--water); }
+  .rw-card.selected { border-color:var(--accent); background:rgba(79,201,126,0.08); }
+  .rw-card.multi.selected { border-color:var(--accent2); background:rgba(245,166,35,0.07); }
+  .rw-icon { font-size:22px; flex-shrink:0; margin-top:1px; }
+  .rw-label { font-weight:600; font-size:14px; margin-bottom:2px; }
+  .rw-desc { font-size:12px; color:var(--muted); line-height:1.4; }
+  .skip-link { display:block; text-align:center; color:var(--muted); font-size:13px; padding:12px 0 4px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+  .skip-link:hover { color:var(--text); }
+  .recent-weather-note { background:rgba(30,106,122,0.2); border:1px solid var(--water); border-radius:10px; padding:10px 14px; font-size:12px; color:#a8e8f5; margin-bottom:12px; line-height:1.5; }
+
+  /* Region tabs */
+  .region-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+  .rtab { padding:6px 12px; border-radius:50px; border:1.5px solid var(--border); background:var(--surface2); color:var(--muted); font-size:12px; font-family:'DM Sans',sans-serif; font-weight:600; cursor:pointer; transition:all 0.15s; -webkit-tap-highlight-color:transparent; }
+  .rtab:hover { border-color:var(--accent); color:var(--accent); }
+  .rtab.active { background:var(--accent); border-color:var(--accent); color:#0d1b1e; }
+
+  .loc-group { display:none; flex-direction:column; gap:8px; }
+  .loc-group.visible { display:flex; }
+
+  .loc-card { background:var(--surface2); border:1.5px solid var(--border); border-radius:12px; padding:12px 14px; cursor:pointer; transition:all 0.15s; -webkit-tap-highlight-color:transparent; }
+  .loc-card:hover { border-color:var(--water); }
+  .loc-card.selected { border-color:var(--accent); background:rgba(79,201,126,0.08); }
+  .loc-name { font-weight:600; font-size:14px; margin-bottom:2px; }
+  .loc-area { font-size:11px; color:var(--muted); margin-bottom:5px; }
+  .loc-tags { display:flex; flex-wrap:wrap; gap:4px; }
+  .tag { font-size:10px; padding:2px 7px; border-radius:50px; background:var(--water); color:#a8e8f5; font-weight:500; }
+  .tag.green { background:rgba(79,201,126,0.2); color:var(--accent); }
+  .tag.orange { background:rgba(245,166,35,0.2); color:var(--accent2); }
+  .tag.red { background:rgba(224,92,92,0.2); color:#f09090; }
+
+  .pills { display:flex; flex-wrap:wrap; gap:8px; }
+  .pill { padding:8px 14px; border-radius:50px; border:1.5px solid var(--border); background:var(--surface2); color:var(--muted); font-size:13px; font-family:'DM Sans',sans-serif; font-weight:500; cursor:pointer; transition:all 0.18s; -webkit-tap-highlight-color:transparent; }
+  .pill:hover { border-color:var(--accent); color:var(--accent); }
+  .pill.selected { background:var(--accent); border-color:var(--accent); color:#0d1b1e; font-weight:600; }
+  .pill.warn.selected { background:var(--accent2); border-color:var(--accent2); color:#0d1b1e; }
+  .sub-label { font-size:12px; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px; }
+  .section-gap { margin-bottom:18px; }
+
+  .cta { width:100%; padding:16px; background:var(--accent); color:#0d1b1e; font-family:'Bebas Neue',sans-serif; font-size:20px; letter-spacing:2px; border:none; border-radius:12px; cursor:pointer; transition:all 0.2s; margin-top:6px; }
+  .cta:hover { background:#5de08e; transform:translateY(-1px); }
+  .missing-msg { color:var(--danger); font-size:13px; margin-top:10px; text-align:center; min-height:20px; }
+
+  #result-panel { display:none; animation:fadeUp 0.5s ease both; }
+  #result-panel.visible { display:block; }
+  .result-section { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .result-section-title { font-size:10px; text-transform:uppercase; letter-spacing:2px; color:var(--muted); margin-bottom:10px; font-weight:600; }
+  .result-header { font-family:'Bebas Neue',sans-serif; font-size:26px; letter-spacing:2px; margin-bottom:16px; color:var(--accent); }
+
+  .movement-card { background:linear-gradient(135deg,rgba(30,106,122,0.3),rgba(13,27,30,0.8)); border:1px solid var(--water); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .movement-title { font-family:'Bebas Neue',sans-serif; font-size:18px; letter-spacing:1px; color:#a8e8f5; margin-bottom:8px; }
+  .depth-bar-wrap { background:rgba(255,255,255,0.07); border-radius:50px; height:10px; margin:10px 0 6px; overflow:hidden; }
+  .depth-bar { height:100%; border-radius:50px; background:linear-gradient(90deg,var(--accent),var(--water)); transition:width 0.6s ease; }
+  .depth-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); }
+  .movement-text { font-size:13px; line-height:1.6; color:var(--text); margin-top:8px; }
+
+  .spot-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:8px; }
+  .spot-rank { display:inline-block; font-size:10px; padding:2px 8px; border-radius:50px; margin-bottom:5px; font-weight:600; }
+  .rank-1 { background:var(--accent); color:#0d1b1e; }
+  .rank-2 { background:rgba(245,166,35,0.25); color:var(--accent2); }
+  .rank-3 { background:rgba(255,255,255,0.1); color:var(--muted); }
+  .spot-name { font-weight:600; font-size:14px; margin-bottom:3px; }
+  .spot-detail { font-size:12px; color:var(--muted); line-height:1.5; }
+
+  .lure-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:8px; }
+  .lure-card.top { border-color:var(--accent); background:rgba(79,201,126,0.06); }
+  .lure-top-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .lure-name { font-weight:600; font-size:14px; }
+  .lure-badge { font-size:10px; padding:2px 8px; border-radius:50px; font-weight:600; }
+  .badge-best { background:var(--accent); color:#0d1b1e; }
+  .badge-good { background:rgba(245,166,35,0.25); color:var(--accent2); }
+  .lure-detail { font-size:12px; color:var(--muted); line-height:1.5; }
+
+  .color-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+  .swatch { display:flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:5px 10px 5px 6px; font-size:12px; }
+  .swatch-dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
+
+  .walmart-card { background:rgba(0,113,206,0.1); border:1px solid rgba(0,113,206,0.35); border-radius:10px; padding:12px 14px; margin-bottom:8px; }
+  .walmart-item { font-weight:600; font-size:14px; margin-bottom:2px; }
+  .walmart-detail { font-size:12px; color:#7ab8e8; line-height:1.5; }
+  .walmart-price { font-size:11px; color:var(--accent2); margin-top:3px; font-weight:600; }
+
+  .tip-box { background:rgba(245,166,35,0.08); border:1px solid rgba(245,166,35,0.3); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--accent2); line-height:1.6; }
+  .tip-box strong { color:#ffd580; }
+  .month-banner { background:rgba(79,201,126,0.1); border:1px solid rgba(79,201,126,0.3); border-radius:10px; padding:10px 14px; font-size:13px; color:var(--accent); margin-bottom:14px; line-height:1.5; }
+  .month-banner strong { color:#a8f0c0; }
+  .reset-btn { width:100%; padding:12px; background:transparent; color:var(--muted); font-family:'DM Sans',sans-serif; font-size:14px; border:1.5px solid var(--border); border-radius:12px; cursor:pointer; margin-top:6px; transition:all 0.18s; }
+  .reset-btn:hover { border-color:var(--muted); color:var(--text); }
+
+  .warn-note { background:rgba(224,92,92,0.08); border:1px solid rgba(224,92,92,0.3); border-radius:8px; padding:8px 12px; font-size:12px; color:#f09090; margin-top:8px; }
+
+  /* My Lakes */
+  .add-lake-form { background:var(--surface2); border:1.5px dashed var(--border); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .add-lake-form input, .add-lake-form select, .add-lake-form textarea {
+    width:100%; background:var(--surface); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); font-family:'DM Sans',sans-serif; font-size:13px;
+    padding:9px 12px; margin-bottom:8px; outline:none;
+  }
+  .add-lake-form input:focus, .add-lake-form select:focus, .add-lake-form textarea:focus { border-color:var(--accent); }
+  .add-lake-form textarea { resize:none; height:56px; }
+  .add-lake-form select option { background:#1a2e34; }
+  .add-lake-btn { width:100%; padding:10px; background:var(--accent); color:#0d1b1e; font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:1px; border:none; border-radius:8px; cursor:pointer; }
+  .custom-loc-card { position:relative; }
+  .delete-lake-btn { position:absolute; top:10px; right:10px; background:rgba(224,92,92,0.2); border:none; color:#f09090; font-size:11px; padding:2px 8px; border-radius:50px; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .empty-lakes { text-align:center; color:var(--muted); font-size:13px; padding:20px 0; }
+
+  /* Weather button */
+  .weather-btn { width:100%; padding:11px; background:rgba(30,106,122,0.25); border:1.5px solid var(--water); border-radius:10px; color:#a8e8f5; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; margin-bottom:14px; transition:all 0.18s; }
+  .weather-btn:hover { background:rgba(30,106,122,0.4); }
+  .weather-btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .weather-status { font-size:12px; color:var(--accent); margin-bottom:10px; text-align:center; min-height:16px; }
+  .weather-loaded { background:rgba(79,201,126,0.08); border:1px solid rgba(79,201,126,0.25); border-radius:8px; padding:8px 12px; font-size:12px; color:var(--accent); margin-bottom:10px; }
+  /* Admin panel */
+  #admin-panel { display:none; position:fixed; inset:0; background:var(--bg); z-index:999; overflow-y:auto; padding:24px 16px 60px; }
+  #admin-panel.visible { display:block; }
+  .admin-header { font-family:'Bebas Neue',sans-serif; font-size:32px; letter-spacing:2px; color:var(--accent2); margin-bottom:4px; }
+  .admin-sub { font-size:12px; color:var(--muted); margin-bottom:20px; }
+  .admin-field { margin-bottom:12px; }
+  .admin-field label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:5px; font-weight:600; }
+  .admin-field input, .admin-field select, .admin-field textarea {
+    width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); font-family:'DM Sans',sans-serif; font-size:13px; padding:10px 12px; outline:none;
+  }
+  .admin-field input:focus, .admin-field select:focus, .admin-field textarea:focus { border-color:var(--accent); }
+  .admin-field textarea { resize:none; height:70px; }
+  .admin-field select option { background:#1a2e34; }
+  .admin-save-btn { width:100%; padding:14px; background:var(--accent2); color:#0d1b1e; font-family:'Bebas Neue',sans-serif; font-size:18px; letter-spacing:2px; border:none; border-radius:12px; cursor:pointer; margin-top:6px; }
+  .admin-close-btn { width:100%; padding:11px; background:transparent; color:var(--muted); font-family:'DM Sans',sans-serif; font-size:13px; border:1.5px solid var(--border); border-radius:12px; cursor:pointer; margin-top:10px; }
+  .admin-lake-list { margin-top:20px; }
+  .admin-lake-row { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px 14px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; }
+  .admin-lake-name { font-weight:600; font-size:13px; }
+  .admin-lake-region { font-size:11px; color:var(--muted); }
+  .admin-delete-btn { background:rgba(224,92,92,0.2); border:none; color:#f09090; font-size:11px; padding:3px 10px; border-radius:50px; cursor:pointer; font-family:'DM Sans',sans-serif; flex-shrink:0; }
+  .admin-msg { font-size:13px; text-align:center; padding:8px; border-radius:8px; margin-bottom:10px; }
+  .admin-msg.success { background:rgba(79,201,126,0.15); color:var(--accent); }
+  .admin-msg.error { background:rgba(224,92,92,0.15); color:#f09090; }
+  #admin-login { display:flex; flex-direction:column; gap:10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">Cast <span>Smart</span></div>
+    <div class="tagline">STL Area Fishing Guide — April Edition</div>
+  </header>
+
+  <!-- WIZARD NAV -->
+  <div class="wizard-nav" id="wizard-nav">
+    <button class="back-btn" id="back-btn" onclick="wizardBack()" style="visibility:hidden">← Back</button>
+    <div class="step-dots" id="step-dots">
+      <div class="dot active" id="dot-0"></div>
+      <div class="dot" id="dot-1"></div>
+      <div class="dot" id="dot-2"></div>
+      <div class="dot" id="dot-3"></div>
+      <div class="dot" id="dot-4"></div>
+    </div>
+    <div style="width:48px"></div>
+  </div>
+
+  <!-- SCREEN 1: Location -->
+  <div class="wizard-screen visible" id="screen-0">
+    <div class="step">
+      <div class="step-label">Step 1 of 5</div>
+      <div class="step-title">Pick Your Area & Water</div>
+      <div class="month-banner">🐟 <strong>Spawn season is on!</strong> Bass and crappie are moving shallow right now. April is one of the best months to fish the STL area.</div>
+      <div class="region-tabs">
+        <button class="rtab active" onclick="showRegion('fenton')">Fenton / South</button>
+        <button class="rtab" onclick="showRegion('westcounty')">West County</button>
+        <button class="rtab" onclick="showRegion('southcounty')">South County / Hwy 30</button>
+        <button class="rtab" onclick="showRegion('jeffco')">Jefferson Co.</button>
+        <button class="rtab" onclick="showRegion('stcharles')">St. Charles Co.</button>
+        <button class="rtab" onclick="showRegion('i70')">I-70 / Hwy 70 Belt</button>
+        <button class="rtab" onclick="showRegion('rivers')">Rivers</button>
+        <button class="rtab" onclick="showRegion('mylakes')" id="tab-mylakes">⭐ My Lakes</button>
+      </div>
+
+    <!-- Fenton / South -->
+    <div class="loc-group visible" id="rg-fenton">
+      <div class="loc-card" onclick="selectLoc(this,'preslar')">
+        <div class="loc-name">Preslar Lake</div>
+        <div class="loc-area">📍 Fabick Nature Preserve, Fenton</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Bluegill</span><span class="tag green">Catfish</span><span class="tag orange">18" bass limit</span><span class="tag">No boats</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'fabick')">
+        <div class="loc-name">Upper Fabick Lake</div>
+        <div class="loc-area">📍 Fabick Nature Preserve, Fenton</div>
+        <div class="loc-tags"><span class="tag green">Bluegill</span><span class="tag green">Bass</span><span class="tag">Less pressure than Preslar</span><span class="tag orange">Quieter spot</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'unger')">
+        <div class="loc-name">Unger Park Lake</div>
+        <div class="loc-area">📍 500 Yarnell Rd, Fenton (near Kirkwood)</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Bluegill</span><span class="tag green">Crappie</span><span class="tag red">Asian carp present</span><span class="tag">Floodplain, changes seasonally</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'westside')">
+        <div class="loc-name">Westside Park Lake</div>
+        <div class="loc-area">📍 Fenton</div>
+        <div class="loc-tags"><span class="tag green">Catfish</span><span class="tag green">Bass</span><span class="tag">Stocked by MDC</span><span class="tag orange">18" bass limit</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'suson')">
+        <div class="loc-name">Suson Park — Carp Lake & Island Lake</div>
+        <div class="loc-area">📍 South St. Louis County</div>
+        <div class="loc-tags"><span class="tag green">Bass up to 20"</span><span class="tag green">Catfish</span><span class="tag green">Trout (winter)</span><span class="tag orange">MDC stocked</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'beetree')">
+        <div class="loc-name">Bee Tree Park Lake</div>
+        <div class="loc-area">📍 Oakville, South St. Louis County</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Crappie</span><span class="tag green">Catfish</span><span class="tag">9 acres, fishing dock</span><span class="tag orange">MDC stocked</span></div>
+      </div>
+    </div>
+
+    <!-- West County -->
+    <div class="loc-group" id="rg-westcounty">
+      <div class="loc-card" onclick="selectLoc(this,'newballwin')">
+        <div class="loc-name">New Ballwin Park Lake</div>
+        <div class="loc-area">📍 329 New Ballwin Rd, Ballwin</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Hybrid Sunfish</span><span class="tag orange">MDC stocked</span><span class="tag orange">18" bass limit</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'vlasis')">
+        <div class="loc-name">Vlasis Park — Stocked Pond</div>
+        <div class="loc-area">📍 300 Park Dr, Ballwin</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag">31 acres park, walkable</span><span class="tag orange">18" bass limit</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'simpson')">
+        <div class="loc-name">Simpson Park Lake</div>
+        <div class="loc-area">📍 Valley Park, West St. Louis County</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Crappie</span><span class="tag green">Catfish</span><span class="tag">72 acres — biggest nearby</span><span class="tag orange">Boat launch</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'queeny')">
+        <div class="loc-name">Queeny Park Lakes</div>
+        <div class="loc-area">📍 1675 South Mason Rd, Ballwin</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag">Multiple lakes, wooded setting</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'desperes')">
+        <div class="loc-name">Des Peres Park Lake</div>
+        <div class="loc-area">📍 12325 Manchester Rd, Des Peres</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag">2 acres, right off Manchester</span><span class="tag orange">Low pressure spot</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'tilles')">
+        <div class="loc-name">Tilles Park Lake</div>
+        <div class="loc-area">📍 McKnight Rd south of I-64, Ladue area</div>
+        <div class="loc-tags"><span class="tag green">Catfish</span><span class="tag green">Bass</span><span class="tag green">Trout (winter)</span><span class="tag orange">MDC stocked</span><span class="tag">Dock fishing</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'howell')">
+        <div class="loc-name">Howell Island CA — Missouri River Bank</div>
+        <div class="loc-area">📍 Off Eatherton Rd, Chesterfield</div>
+        <div class="loc-tags"><span class="tag green">White Bass</span><span class="tag green">Catfish</span><span class="tag green">Crappie</span><span class="tag orange">Island access, unique spot</span></div>
+      </div>
+    </div>
+
+    <!-- South County / Hwy 30 -->
+    <div class="loc-group" id="rg-southcounty">
+      <div class="loc-card" onclick="selectLoc(this,'januarywabash')">
+        <div class="loc-name">January-Wabash Memorial Park Lake</div>
+        <div class="loc-area">📍 Ferguson (North St. Louis County)</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Crappie</span><span class="tag green">Catfish</span><span class="tag orange">5 acres, jetty access</span><span class="tag orange">18" bass limit</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'blackjack')">
+        <div class="loc-name">Blackjack Lake (Veterans Memorial Park)</div>
+        <div class="loc-area">📍 North St. Louis County</div>
+        <div class="loc-tags"><span class="tag green">Bass up to 20"</span><span class="tag green">Catfish</span><span class="tag orange">MDC stocked</span><span class="tag">2 fishing docks</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'spanishlake')">
+        <div class="loc-name">Spanish Lake Park</div>
+        <div class="loc-area">📍 North St. Louis County</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Crappie</span><span class="tag green">Catfish</span><span class="tag">Low pressure, under-fished</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'youngca')">
+        <div class="loc-name">Young Conservation Area Ponds</div>
+        <div class="loc-area">📍 Off I-44 / Route W / Route FF, South County area</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Sunfish</span><span class="tag orange">Hidden MDC ponds</span><span class="tag">LaBarque Creek access</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'route66ponds')">
+        <div class="loc-name">Route 66 State Park Ponds</div>
+        <div class="loc-area">📍 97 N Outer Rd, Eureka (Hwy 44 / 66 area)</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Bluegill</span><span class="tag">Wetland ponds, very scenic</span><span class="tag orange">Underused — low pressure</span></div>
+      </div>
+    </div>
+
+    <!-- Jefferson County -->
+    <div class="loc-group" id="rg-jeffco">
+      <div class="loc-card" onclick="selectLoc(this,'bigriver')">
+        <div class="loc-name">Big River — Cedar Hill Park Access</div>
+        <div class="loc-area">📍 Cedar Hill, off Hwy 30</div>
+        <div class="loc-tags"><span class="tag green">Smallmouth Bass</span><span class="tag green">Sunfish</span><span class="tag red">Trophy Smallmouth area — special regs</span><span class="tag orange">Mill dam ruins</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'meramecfestus')">
+        <div class="loc-name">Meramec River — Arnold / Festus Area</div>
+        <div class="loc-area">📍 Flamm City Park, Arnold (off Hwy 141 / 55)</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Carp</span><span class="tag">Bank fishing, boat ramp</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'highridgepond')">
+        <div class="loc-name">High Ridge / Murphy Area Ponds</div>
+        <div class="loc-area">📍 Along Hwy 30, Jefferson County</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Bluegill</span><span class="tag orange">Neighborhood/subdivision ponds</span><span class="tag">Check access — some public, some not</span></div>
+      </div>
+    </div>
+
+    <!-- St. Charles County -->
+    <div class="loc-group" id="rg-stcharles">
+      <div class="loc-card" onclick="selectLoc(this,'busch')">
+        <div class="loc-name">Busch Wildlife — Multiple Lakes</div>
+        <div class="loc-area">📍 St. Charles (north of Hwy 40/64)</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Crappie</span><span class="tag orange">15+ lakes on site</span><span class="tag">Trout stocked winter</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'weldonspring')">
+        <div class="loc-name">Weldon Spring Conservation Area</div>
+        <div class="loc-area">📍 Near Hwy 40/64 & Hwy 94, St. Charles County</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Crappie</span><span class="tag">51 acres of fishable ponds</span><span class="tag orange">Missouri River access too</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'broemmelsiek')">
+        <div class="loc-name">Broemmelsiek Park Lakes</div>
+        <div class="loc-area">📍 Near Wentzville, St. Charles County</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Bluegill</span><span class="tag">Multiple stocked lakes</span><span class="tag orange">Low pressure</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'quailridge')">
+        <div class="loc-name">Quail Ridge Park Lake</div>
+        <div class="loc-area">📍 Wentzville, St. Charles County</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Bluegill</span><span class="tag">3 acres + small pond</span><span class="tag orange">Stocked, easy access</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'indiancamp')">
+        <div class="loc-name">Indian Camp Creek Park Lake</div>
+        <div class="loc-area">📍 Foristell, St. Charles County (near I-70)</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Bluegill</span><span class="tag">6 acres, creek fishing too</span><span class="tag orange">Hidden gem near I-70</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'kluesner')">
+        <div class="loc-name">Kluesner Lake / Moore Lake</div>
+        <div class="loc-area">📍 City of St. Charles</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag orange">18" bass limit</span><span class="tag">Stocked, city park</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'fountainlakesc')">
+        <div class="loc-name">Fountain Lakes Pond</div>
+        <div class="loc-area">📍 City of St. Charles</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag orange">18" bass limit</span></div>
+      </div>
+    </div>
+
+    <!-- I-70 Belt -->
+    <div class="loc-group" id="rg-i70">
+      <div class="loc-card" onclick="selectLoc(this,'heartland')">
+        <div class="loc-name">Heartland Lake / Community Club Lake</div>
+        <div class="loc-area">📍 Wentzville / Rotary Park area</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag green">Sunfish</span><span class="tag">5 acres, fishing dock</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'lakelstlouis')">
+        <div class="loc-name">Lake St. Louis — Community Lake</div>
+        <div class="loc-area">📍 Lake St. Louis, off I-70</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Crappie</span><span class="tag green">Catfish</span><span class="tag">Residential lake, check access</span><span class="tag orange">Lightly pressured</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'cuivreisland')">
+        <div class="loc-name">Cuivre Island / Cuivre River CA</div>
+        <div class="loc-area">📍 Off Hwy 79, north of I-70 / Troy area</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Crappie</span><span class="tag green">Catfish</span><span class="tag orange">Mississippi backwater</span><span class="tag">Worth the drive</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'innsbrook')">
+        <div class="loc-name">Innsbrook Area Lakes</div>
+        <div class="loc-area">📍 Near Warrenton / New Melle / Defiance</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Crappie</span><span class="tag">Private resort area — day passes available</span><span class="tag orange">Multiple lakes</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'klondike')">
+        <div class="loc-name">Klondike Park — Missouri River Bank</div>
+        <div class="loc-area">📍 Augusta / Defiance, off Hwy 94</div>
+        <div class="loc-tags"><span class="tag green">Catfish</span><span class="tag green">Carp</span><span class="tag green">White Bass</span><span class="tag orange">Missouri River access</span><span class="tag">Gorgeous setting</span></div>
+      </div>
+    </div>
+
+    <!-- Rivers -->
+    <div class="loc-group" id="rg-rivers">
+      <div class="loc-card" onclick="selectLoc(this,'meramecvalleypark')">
+        <div class="loc-name">Meramec River — Valley Park / George Winter Park</div>
+        <div class="loc-area">📍 Valley Park (off Hwy 141)</div>
+        <div class="loc-tags"><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag">Boat ramp, bank fishing</span><span class="tag orange">Post-spawn bass active</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'meramecpacific')">
+        <div class="loc-name">Meramec River — Pacific / Washington Area</div>
+        <div class="loc-area">📍 Off I-44, south of Hwy 70 / Washington MO</div>
+        <div class="loc-tags"><span class="tag green">Smallmouth Bass</span><span class="tag green">Bass</span><span class="tag green">Catfish</span><span class="tag orange">Cleaner water upstream</span><span class="tag">Float or bank</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'bigriverarnold')">
+        <div class="loc-name">Big River — Morse Mill / Hwy 30 Crossings</div>
+        <div class="loc-area">📍 Jefferson County, off Hwy 30</div>
+        <div class="loc-tags"><span class="tag green">Smallmouth Bass</span><span class="tag green">Sunfish</span><span class="tag red">Trophy area — special regs apply</span><span class="tag orange">Clearest water near STL</span></div>
+      </div>
+      <div class="loc-card" onclick="selectLoc(this,'missouririver')">
+        <div class="loc-name">Missouri River — Weldon Spring / Defiance</div>
+        <div class="loc-area">📍 Hwy 94 corridor, St. Charles County</div>
+        <div class="loc-tags"><span class="tag green">Catfish</span><span class="tag green">White Bass</span><span class="tag green">Carp</span><span class="tag">Big water, boat helpful</span><span class="tag orange">Spring white bass run happening now</span></div>
+      </div>
+    </div>
+
+    <!-- My Lakes -->
+    <div class="loc-group" id="rg-mylakes">
+      <div class="add-lake-form">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:10px;font-weight:600;">➕ Add a New Lake or Pond</div>
+        <input type="text" id="new-lake-name" placeholder="Name (e.g. Friend's pond, Lake off Hwy 47)" maxlength="60">
+        <input type="text" id="new-lake-location" placeholder="Location / address (optional)" maxlength="80">
+        <select id="new-lake-type">
+          <option value="" disabled selected>Water type…</option>
+          <option value="pond">Small Pond</option>
+          <option value="lake">Lake</option>
+          <option value="river">River / Creek</option>
+          <option value="reservoir">Reservoir</option>
+        </select>
+        <textarea id="new-lake-notes" placeholder="Notes: has a dock, mostly shallow, private property OK, etc."></textarea>
+        <button class="add-lake-btn" onclick="addCustomLake()">SAVE THIS LAKE</button>
+      </div>
+      <div id="custom-lakes-list"></div>
+    </div>
+    </div><!-- end step -->
+    <div class="missing-msg" id="missing-msg-loc"></div>
+    <button class="cta" onclick="wizardNext(0)">NEXT: Time of Day →</button>
+  </div><!-- end screen-0 -->
+
+  <!-- SCREEN 2: Time -->
+  <div class="wizard-screen" id="screen-1">
+    <div class="step">
+      <div class="step-label">Step 2 of 5</div>
+      <div class="step-title">What Time Are You Going?</div>
+      <div class="pills" id="time-group">
+        <button class="pill" onclick="selectPill('time',this,'night')">🌙 Night (10pm–5am)</button>
+        <button class="pill" onclick="selectPill('time',this,'dawn')">🌅 Dawn (5–8am)</button>
+        <button class="pill" onclick="selectPill('time',this,'morning')">☀️ Morning (8–11am)</button>
+        <button class="pill" onclick="selectPill('time',this,'midday')">🌞 Midday (11am–3pm)</button>
+        <button class="pill" onclick="selectPill('time',this,'afternoon')">🌤️ Afternoon (3–6pm)</button>
+        <button class="pill" onclick="selectPill('time',this,'evening')">🌇 Evening (6–10pm)</button>
+      </div>
+    </div>
+    <div class="missing-msg" id="missing-msg-time"></div>
+    <button class="cta" onclick="wizardNext(1)">NEXT: Conditions →</button>
+  </div><!-- end screen-1 -->
+
+  <!-- SCREEN 3: Conditions -->
+  <div class="wizard-screen" id="screen-2">
+    <div class="step">
+      <div class="step-label">Step 3 of 5</div>
+      <div class="step-title">What Are the Conditions?</div>
+      <button class="weather-btn" id="weather-btn" onclick="loadWeather()">🌤️ Auto-Fill from Current Weather</button>
+      <div class="weather-status" id="weather-status"></div>
+      <div class="weather-loaded" id="weather-loaded" style="display:none"></div>
+      <div class="section-gap">
+        <div class="sub-label">☁️ Sky</div>
+        <div class="pills" id="sky-group">
+          <button class="pill" onclick="selectPill('sky',this,'sunny')">☀️ Sunny</button>
+          <button class="pill" onclick="selectPill('sky',this,'partly')">⛅ Partly Cloudy</button>
+          <button class="pill" onclick="selectPill('sky',this,'overcast')">☁️ Overcast</button>
+          <button class="pill" onclick="selectPill('sky',this,'rainy')">🌧️ Rainy</button>
+        </div>
+      </div>
+      <div class="section-gap">
+        <div class="sub-label">💧 Water Color</div>
+        <div class="pills" id="water-group">
+          <button class="pill" onclick="selectPill('water',this,'clear')">🔵 Clear</button>
+          <button class="pill" onclick="selectPill('water',this,'stained')">🟤 Stained / Tea</button>
+          <button class="pill" onclick="selectPill('water',this,'murky')">⚫ Murky / Dark</button>
+          <button class="pill" onclick="selectPill('water',this,'green')">🟢 Green / Algae</button>
+        </div>
+      </div>
+      <div class="section-gap">
+        <div class="sub-label">🌡️ Air Temp</div>
+        <div class="pills" id="temp-group">
+          <button class="pill" onclick="selectPill('temp',this,'cold')">🧊 Cold (&lt;45°F)</button>
+          <button class="pill" onclick="selectPill('temp',this,'cool')">🌊 Cool (45–60°F)</button>
+          <button class="pill" onclick="selectPill('temp',this,'warm')">🔆 Warm (60°F+)</button>
+        </div>
+      </div>
+      <div class="section-gap">
+        <div class="sub-label">🌬️ Wind</div>
+        <div class="pills" id="wind-group">
+          <button class="pill" onclick="selectPill('wind',this,'calm')">😌 Calm</button>
+          <button class="pill" onclick="selectPill('wind',this,'light')">🍃 Light Breeze</button>
+          <button class="pill" onclick="selectPill('wind',this,'strong')">💨 Windy</button>
+        </div>
+      </div>
+    </div>
+    <div class="missing-msg" id="missing-msg-cond"></div>
+    <button class="cta" onclick="wizardNext(2)">NEXT: Recent Weather →</button>
+  </div><!-- end screen-2 -->
+
+  <!-- SCREEN 4: Recent Weather -->
+  <div class="wizard-screen" id="screen-3">
+    <div class="step">
+      <div class="step-label">Step 4 of 5 — Optional</div>
+      <div class="step-title">Did Anything Happen Recently?</div>
+      <div class="recent-weather-note">What happened in the last 1–3 days can change where fish are and what they'll bite. Select all that apply, or skip if nothing notable.</div>
+      <div class="recent-weather-grid">
+        <div class="rw-card multi" onclick="toggleRW(this,'light_rain_yesterday')">
+          <div class="rw-icon">🌦️</div>
+          <div><div class="rw-label">Light Rain Yesterday</div><div class="rw-desc">Slight water clarity drop, small pressure changes. Fish are returning to normal but still slightly off. Water may be lightly stained.</div></div>
+        </div>
+        <div class="rw-card multi" onclick="toggleRW(this,'heavy_rain_24h')">
+          <div class="rw-icon">⛈️</div>
+          <div><div class="rw-label">Heavy Rain in Last 24hrs</div><div class="rw-desc">Runoff has muddied the water significantly. Fish pushed into flooded shallow areas — newly covered bushes, grass, timber. Big change in behavior.</div></div>
+        </div>
+        <div class="rw-card multi" onclick="toggleRW(this,'rain_2_3_days')">
+          <div class="rw-icon">🌧️</div>
+          <div><div class="rw-label">Rained 2–3 Days Ago</div><div class="rw-desc">Water clarity recovering but still off. Fish settling back to normal patterns. A transitional day — both shallow and mid-depth are worth checking.</div></div>
+        </div>
+        <div class="rw-card multi" onclick="toggleRW(this,'temp_drop')">
+          <div class="rw-icon">🌡️</div>
+          <div><div class="rw-label">Big Temperature Drop Recently</div><div class="rw-desc">Cold front aftermath. Fish went deep, stopped feeding aggressively. Finesse presentations only — don't expect them to chase anything.</div></div>
+        </div>
+        <div class="rw-card multi" onclick="toggleRW(this,'warm_streak')">
+          <div class="rw-icon">☀️</div>
+          <div><div class="rw-label">Warm Streak (3+ Sunny Days)</div><div class="rw-desc">Water has warmed up faster than normal. Spawn may be further along. Fish are more active and have moved shallower than seasonal average.</div></div>
+        </div>
+        <div class="rw-card multi" onclick="toggleRW(this,'no_rain_week')">
+          <div class="rw-icon">🏜️</div>
+          <div><div class="rw-label">No Rain in a Week+</div><div class="rw-desc">Water is clearing up and settling. Levels may be dropping slightly. Fish have returned to predictable structure spots. Good clarity = finesse presentations.</div></div>
+        </div>
+      </div>
+      <span class="skip-link" onclick="wizardNext(3, true)">Skip — nothing notable happened →</span>
+    </div>
+    <button class="cta" onclick="wizardNext(3)">NEXT: Target Fish →</button>
+  </div><!-- end screen-3 -->
+
+  <!-- SCREEN 5: Target Fish -->
+  <div class="wizard-screen" id="screen-4">
+    <div class="step">
+      <div class="step-label">Step 5 of 5</div>
+      <div class="step-title">What Are You Targeting?</div>
+      <div class="pills" id="fish-group">
+        <button class="pill" onclick="selectPill('fish',this,'bass')">🐟 Bass</button>
+        <button class="pill" onclick="selectPill('fish',this,'crappie')">🐠 Crappie</button>
+        <button class="pill" onclick="selectPill('fish',this,'catfish')">🐱 Catfish</button>
+        <button class="pill" onclick="selectPill('fish',this,'bluegill')">🫐 Bluegill</button>
+        <button class="pill" onclick="selectPill('fish',this,'smallmouth')">🏔️ Smallmouth</button>
+        <button class="pill warn" onclick="selectPill('fish',this,'anything')">🤷 Whatever bites</button>
+      </div>
+    </div>
+    <div class="missing-msg" id="missing-msg-fish"></div>
+    <button class="cta" onclick="getRecommendation()">GET MY GAME PLAN →</button>
+  </div><!-- end screen-4 -->
+
+  <!-- RESULT -->
+  <div id="result-panel" style="display:none">
+    <div class="step">
+      <div class="result-header" id="result-title">Your Game Plan</div>
+      <div class="warn-note" id="reg-warning" style="display:none"></div>
+      <div class="movement-card">
+        <div class="movement-title" id="movement-title"></div>
+        <div class="depth-bar-wrap"><div class="depth-bar" id="depth-bar" style="width:0%"></div></div>
+        <div class="depth-labels"><span>Shallow (0–3ft)</span><span>Mid (4–8ft)</span><span>Deep (9ft+)</span></div>
+        <div class="movement-text" id="movement-text"></div>
+      </div>
+      <div class="result-section" id="recent-weather-impact" style="display:none">
+        <div class="result-section-title">🌧️ How Recent Weather Is Affecting Today</div>
+        <div id="rw-impact-text"></div>
+      </div>
+      <div class="result-section">
+        <div class="result-section-title">📍 Where to Set Up</div>
+        <div id="spot-list"></div>
+      </div>
+      <div class="result-section">
+        <div class="result-section-title">🪝 Best Lures For These Conditions</div>
+        <div id="lure-list"></div>
+      </div>
+      <div class="result-section">
+        <div class="result-section-title">🎨 Best Colors Today</div>
+        <div class="color-row" id="color-list"></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px;" id="color-reason"></div>
+      </div>
+      <div class="result-section">
+        <div class="result-section-title">🛒 What to Grab at Walmart</div>
+        <div id="walmart-list"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;">All findable in the fishing aisle at most STL-area Walmart stores.</div>
+      </div>
+      <div class="tip-box" id="pro-tip"></div>
+      <br>
+      <button class="reset-btn" onclick="resetAll()">↩ Start Over</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── WIZARD ───────────────────────────────────────────────────────────────────
+let currentScreen = 0;
+const TOTAL_SCREENS = 5;
+
+function wizardGoto(n) {
+  document.getElementById('screen-' + currentScreen).classList.remove('visible');
+  currentScreen = n;
+  document.getElementById('screen-' + n).classList.add('visible');
+  // Update dots
+  for (let i = 0; i < TOTAL_SCREENS; i++) {
+    const d = document.getElementById('dot-' + i);
+    d.className = 'dot' + (i === n ? ' active' : i < n ? ' done' : '');
+  }
+  // Back button
+  const bb = document.getElementById('back-btn');
+  bb.style.visibility = n > 0 ? 'visible' : 'hidden';
+  // Hide wizard nav on result
+  document.getElementById('wizard-nav').style.display = n >= TOTAL_SCREENS ? 'none' : 'flex';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function wizardBack() {
+  if (currentScreen > 0) wizardGoto(currentScreen - 1);
+}
+
+function wizardNext(fromScreen, skip) {
+  // Validate each screen before advancing
+  if (fromScreen === 0) {
+    if (!state.loc) { document.getElementById('missing-msg-loc').textContent = 'Please select a location first.'; return; }
+    document.getElementById('missing-msg-loc').textContent = '';
+  }
+  if (fromScreen === 1) {
+    if (!state.time) { document.getElementById('missing-msg-time').textContent = 'Please select a time of day.'; return; }
+    document.getElementById('missing-msg-time').textContent = '';
+  }
+  if (fromScreen === 2) {
+    const missing = [];
+    if (!state.sky) missing.push('sky');
+    if (!state.water) missing.push('water color');
+    if (!state.temp) missing.push('air temp');
+    if (!state.wind) missing.push('wind');
+    if (missing.length > 0) { document.getElementById('missing-msg-cond').textContent = 'Still need: ' + missing.join(', '); return; }
+    document.getElementById('missing-msg-cond').textContent = '';
+  }
+  if (fromScreen === 3 && skip) {
+    state.recentWeather = [];
+  }
+  wizardGoto(fromScreen + 1);
+}
+
+// ── RECENT WEATHER ────────────────────────────────────────────────────────────
+function toggleRW(card, key) {
+  card.classList.toggle('selected');
+  if (!state.recentWeather) state.recentWeather = [];
+  if (state.recentWeather.includes(key)) {
+    state.recentWeather = state.recentWeather.filter(k => k !== key);
+  } else {
+    state.recentWeather.push(key);
+  }
+}
+
+function getRecentWeatherImpact(rw) {
+  if (!rw || rw.length === 0) return null;
+  const impacts = [];
+  if (rw.includes('heavy_rain_24h')) impacts.push('⛈️ <strong>Heavy rain in last 24hrs:</strong> Runoff has muddied the water and raised the level. Fish moved into newly flooded areas — shallow bushes, grass, and timber that\'s now underwater. Work those edges aggressively with a spinnerbait or chatterbait. The murky water actually helps you.');
+  if (rw.includes('light_rain_yesterday')) impacts.push('🌦️ <strong>Light rain yesterday:</strong> Water is slightly off-color and fish are transitioning back to normal. They\'re a little sluggish but feeding. Focus on structure near the bank rather than open water.');
+  if (rw.includes('rain_2_3_days')) impacts.push('🌧️ <strong>Rained 2–3 days ago:</strong> Clarity is recovering. Fish are settling back into normal patterns but still holding slightly deeper than usual. Check both shallow and mid-depth — it\'s a transitional day.');
+  if (rw.includes('temp_drop')) impacts.push('🌡️ <strong>Recent temperature drop:</strong> Cold front aftermath — this is the toughest condition in fishing. Fish went deep and stopped chasing. Finesse only: drop shot, shaky head, slow jig. Patience required. Morning and evening are your only real windows today.');
+  if (rw.includes('warm_streak')) impacts.push('☀️ <strong>Warm streak (3+ days):</strong> Water has warmed faster than seasonal average. Spawn is further along — some bass are already on beds. Fish are shallower than normal for this time of year. Check the shallowest water first.');
+  if (rw.includes('no_rain_week')) impacts.push('🏜️ <strong>No rain in a week+:</strong> Water is clear and settled — fish have returned to predictable structure. Go finesse and natural colors. They\'ve seen every lure thrown at them this week, so downsize and slow down.');
+  return impacts;
+}
+
+function applyRecentWeatherToDepth(mv, rw) {
+  if (!rw || rw.length === 0) return mv;
+  const result = Object.assign({}, mv);
+  if (rw.includes('heavy_rain_24h')) {
+    result.depthPct = Math.max(10, result.depthPct - 25);
+    result.moveText += ' ⛈️ Heavy recent rain has pushed fish into newly flooded shallow areas — look for water that just recently covered brush, grass, and bank vegetation.';
+  }
+  if (rw.includes('temp_drop')) {
+    result.depthPct = Math.min(90, result.depthPct + 20);
+    result.moveText += ' 🌡️ The recent cold front dropped fish deeper and made them lethargic. Expect them 2–4 ft deeper than normal for this time of day.';
+  }
+  if (rw.includes('warm_streak')) {
+    result.depthPct = Math.max(10, result.depthPct - 15);
+    result.moveText += ' ☀️ The warm streak has accelerated spawning — fish are shallower than you\'d normally expect for this time of day.';
+  }
+  return result;
+}
+
+const state = { loc:null, time:null, sky:null, water:null, temp:null, wind:null, fish:null, recentWeather:[] };
+
+// Special regulations by location
+const specialRegs = {
+  preslar: '⚠️ Preslar Lake: Bass must be 18" minimum to keep. No boats allowed.',
+  fabick: '⚠️ Upper Fabick Lake: Bass must be 18" minimum to keep. No boats.',
+  westside: '⚠️ Westside Park Lake: Bass must be 18" minimum to keep.',
+  newballwin: '⚠️ New Ballwin Park Lake: Bass must be 18" minimum to keep.',
+  vlasis: '⚠️ Vlasis Park: Bass must be 18" minimum to keep.',
+  januarywabash: '⚠️ January-Wabash Lake: Bass must be 18" minimum to keep.',
+  kluesner: '⚠️ Kluesner/Moore Lake: Bass must be 18" minimum to keep.',
+  fountainlakesc: '⚠️ Fountain Lakes Pond: Bass must be 18" minimum to keep.',
+  bigriver: '⚠️ Big River Cedar Hill: TROPHY Smallmouth area — special length and daily limits apply. Check MDC regulations before you go.',
+  bigriverarnold: '⚠️ Big River Morse Mill: Trophy Smallmouth Bass area — special regs apply. Check MDC before fishing.',
+  innsbrook: 'ℹ️ Innsbrook is a private resort — day fishing passes may be required. Call ahead to confirm access.',
+  highridgepond: 'ℹ️ Neighborhood ponds along Hwy 30 vary — some are public park ponds, some are HOA or private. Confirm access before fishing.',
+  lakelstlouis: 'ℹ️ Lake St. Louis is a residential community lake. Check current public access rules.',
+};
+
+// Location display names
+const locNames = {
+  preslar:'Preslar Lake (Fenton)', fabick:'Upper Fabick Lake (Fenton)',
+  unger:'Unger Park Lake (Fenton)', westside:'Westside Park Lake (Fenton)',
+  suson:'Suson Park Lakes (South County)', beetree:'Bee Tree Park Lake (Oakville)',
+  newballwin:'New Ballwin Park Lake', vlasis:'Vlasis Park Pond (Ballwin)',
+  simpson:'Simpson Park Lake (Valley Park)', queeny:'Queeny Park Lakes (Ballwin)',
+  desperes:'Des Peres Park Lake', tilles:'Tilles Park Lake',
+  howell:'Howell Island — Missouri River',
+  januarywabash:'January-Wabash Lake (Ferguson)', blackjack:'Blackjack Lake (Veterans Memorial)',
+  spanishlake:'Spanish Lake Park', youngca:'Young CA Ponds (South County)',
+  route66ponds:'Route 66 State Park Ponds (Eureka)',
+  bigriver:'Big River — Cedar Hill', meramecfestus:'Meramec River — Arnold/Festus',
+  highridgepond:'High Ridge/Murphy Ponds (Hwy 30)',
+  busch:'Busch Wildlife CA (St. Charles)', weldonspring:'Weldon Spring CA',
+  broemmelsiek:'Broemmelsiek Park (Wentzville)', quailridge:'Quail Ridge Park (Wentzville)',
+  indiancamp:'Indian Camp Creek Park (Foristell)', kluesner:'Kluesner/Moore Lake (St. Charles)',
+  fountainlakesc:'Fountain Lakes Pond (St. Charles)',
+  heartland:'Heartland/Community Club Lake (Wentzville)', lakelstlouis:'Lake St. Louis',
+  cuivreisland:'Cuivre Island CA (Troy area)', innsbrook:'Innsbrook Area Lakes',
+  klondike:'Klondike Park — Missouri River',
+  meramecvalleypark:'Meramec River — Valley Park', meramecpacific:'Meramec River — Pacific/Washington',
+  bigriverarnold:'Big River — Morse Mill (Hwy 30)', missouririver:'Missouri River — Weldon Spring/Defiance',
+};
+
+// Spot details per location
+const spotData = {
+  preslar: [
+    {name:'North Shoreline — Fallen Logs', detail:'Bass stage along submerged timber on the north bank. Cast parallel to the logs and work slowly. Best at dawn and evening during spawn.', shallow:true},
+    {name:'Fishing Dock Area', detail:'The main dock is the easiest access point. Good for crappie and catfish. Jig vertically under the dock or float a minnow off the end.', always:true},
+    {name:'South Cove', detail:'Shallower and weedy — perfect spawn habitat. Spinnerbait through the weedy edges on overcast days.', shallow:true},
+  ],
+  fabick: [
+    {name:'Wooded East Bank', detail:'Tree canopy overhangs the east side — shade in the morning. Bluegill and bass hold tight to this bank. Approach quietly.', shallow:true},
+    {name:'Open Water Center', detail:'Mid-lake open water for catfish at night. Heavy bottom rig with chicken liver dropped in the middle.', deep:true},
+    {name:'Inlet Area', detail:'Where water feeds into the lake creates oxygen and baitfish concentration. Worth a few casts first thing in the morning.', always:true},
+  ],
+  unger: [
+    {name:'North Shoreline — Meramec Floodplain Edge', detail:'This lake connects to the Meramec floodplain — the north side has the most varied structure. Bass and crappie hold here post-flood.', always:true},
+    {name:'Wooded West Bank', detail:'Large trees along the west side create overhead cover. Good morning bass spot along this bank.', shallow:true},
+    {name:'Note on Asian Carp', detail:'Asian carp are present from Meramec flooding. They won\'t bite your lure but can splash and spook. Don\'t be alarmed if large fish are jumping.', always:true},
+  ],
+  suson: [
+    {name:'Island Lake — Bass Focus', detail:'Island Lake is the go-to for bass at Suson. Work dock edges at dawn with a topwater or spinnerbait. Bass up to 20" reported here.', shallow:true},
+    {name:'Carp Lake — Catfish Bottom', detail:'Carp Lake is better for catfish and carp. Heavy bottom rig on the far bank away from the parking lot.', always:true},
+    {name:'Fishing Dock — Crappie Vertical', detail:'The fishing dock over Island Lake is a crappie magnet during spawn. Jig a small grub at 3-5 ft depth straight down.', always:true},
+  ],
+  beetree: [
+    {name:'Fishing Dock — East Side', detail:'9-acre lake with a solid dock. Crappie and catfish concentrate here. Great for a bobber and minnow setup.', always:true},
+    {name:'Rocky South Shoreline', detail:'Rock bank on the south side holds bass. Cast a jig along the rocks and drag it slowly.', shallow:true},
+    {name:'Creek Inlet — North End', detail:'Small feeder creek enters the north end — bass and crappie funnel here during spawn.', shallow:true},
+  ],
+  simpson: [
+    {name:'Boat Launch Cove', detail:'72 acres means you can cover real water. The cove near the launch has brush piles — crappie stack in these during spawn. Jig vertically.', always:true},
+    {name:'East Bank Points', detail:'Points that jut into the lake are transition zones — bass use these as migration routes heading shallow. Work the tip of each point.', always:true},
+    {name:'Dock Row — West Side', detail:'Multiple docks on the west bank. Pitch a jig to every single piling systematically — midday bass will be parked under them.', deep:true},
+  ],
+  newballwin: [
+    {name:'Main Fishing Bank', detail:'Accessible bank around most of the lake. Focus on corners and any visible brush. MDC-stocked bass are catchable throughout.', always:true},
+    {name:'Shaded Corner — Morning', detail:'Find the most shaded corner early in the morning. Bass stage in shade pockets when the sun hits.', shallow:true},
+  ],
+  vlasis: [
+    {name:'Stocked Pond — Main Bank', detail:'The smaller stocked pond is the target. Work all the way around the perimeter — it\'s small enough to cover in one session.', always:true},
+    {name:'Waterfall / Inlet Feature', detail:'The waterfall oxygenates the water — fish stage near moving water. Great starting point.', always:true},
+  ],
+  busch: [
+    {name:'Lake 33 — North Weedy Flat', detail:'Shallow, weedy, warm — prime spawn habitat. Bass build nests here in April. Slow-rolled spinnerbait through grass edges.', shallow:true},
+    {name:'Lake 33 — West Bank Brush Piles', detail:'Submerged brush piles on the west bank. Crappie stack in these during spawn. Vertical jig at 3-5 ft.', always:true},
+    {name:'Dam Face — Deep Zone', detail:'Rocks on the dam face attract crawfish. Good football jig territory during midday when bass go deep.', deep:true},
+  ],
+  weldonspring: [
+    {name:'Main Lake Shoreline', detail:'51 acres of lakes and ponds across the CA. Start at the main lake and work the bank near structure.', always:true},
+    {name:'Smaller Ponds — Less Pressure', detail:'The smaller ponds within Weldon Spring see far less pressure than the main lake. Worth exploring — they hold good bass.', always:true},
+    {name:'Missouri River Access Point', detail:'The CA also gives you Missouri River bank access. Target catfish and white bass (spring run) from the bank.', always:true},
+  ],
+  indiancamp: [
+    {name:'Main Lake — Full Perimeter', detail:'6-acre stocked lake. Walk the whole perimeter — it\'s small enough. Focus on any visible structure: submerged trees, dock, rock edges.', always:true},
+    {name:'Indian Camp Creek Mouth', detail:'Where the creek enters the lake is always a productive spot. Baitfish concentrate here, predators follow.', always:true},
+    {name:'Big Creek Bank', detail:'Also allowed to fish Big Creek running through the park. Good for smallmouth and sunfish in the creek itself.', shallow:true},
+  ],
+  bigriver: [
+    {name:'Below Old Mill Dam Ruins', detail:'The remains of the old Cedar Hill Mill Dam create current breaks and deeper holes. Smallmouth hold in the eddies directly below.', always:true},
+    {name:'Gravel Bars — Wading', detail:'Wade the gravel bars in the shallows. Smallmouth cruise these in spring looking for crawfish. Cast upstream and drift a jig naturally.', shallow:true},
+    {name:'⚠️ Check Regs First', detail:'This is a Trophy Smallmouth area. Minimum length limits and daily limits are stricter than standard. Look up MDC regs for Big River before you fish.', always:true},
+  ],
+  meramecvalleypark: [
+    {name:'George Winter Park — Rock Pile Upstream', detail:'Large boulders upstream of the ramp. Bass hold directly behind rocks. Cast upstream and let lure drift into the slack pocket behind each rock.', always:true},
+    {name:'Outside River Bend', detail:'Outside of the bend has undercut banks — deeper water where catfish and big bass hide, especially at night.', deep:true},
+    {name:'Gravel Flat — Downstream', detail:'Downstream gravel flat warms up fast. Bass move onto these to spawn in April. Wade quietly, cast ahead of yourself.', shallow:true},
+  ],
+  meramecpacific: [
+    {name:'Below Pacific — Clear Water Section', detail:'Upstream of Pacific the Meramec runs cleaner and clearer. Smallmouth and spotted bass love this stretch. Finesse presentations work best.', always:true},
+    {name:'Washington Area Access', detail:'Multiple river accesses near Washington MO. North of the river you\'re near Hwy 47 — bank fishing access off gravel bars.', always:true},
+  ],
+  missouririver: [
+    {name:'Weldon Spring Boat Ramp Area', detail:'Bank fish from the Weldon Spring access. Spring white bass runs are happening NOW in April — they stack up in current seams chasing baitfish.', always:true},
+    {name:'Klondike Park Bank (Hwy 94)', detail:'Beautiful stretch of Missouri River bank at Klondike. Catfish, carp, and white bass. Bring a heavy rod and bottom rig.', always:true},
+  ],
+  cuivreisland: [
+    {name:'Mississippi Backwater Sloughs', detail:'The backwater areas off the main Mississippi channel hold huge crappie during spawn. Vertical jig with a minnow at 4-6 ft near any flooded timber.', shallow:true},
+    {name:'Main River Bank Access', detail:'Catfish and carp on the main channel. Heavy bottom rig, cut shad or chicken liver. This spot is worth the 45-minute drive.', always:true},
+  ],
+  klondike: [
+    {name:'Main Bank — Missouri River', detail:'Gorgeous rocky bank along the Missouri. Catfish, white bass (spring run right now), and carp. Ledge drop-offs hold big cats.', always:true},
+    {name:'Tributary Mouth', detail:'Small creek mouth where it hits the Missouri. White bass and bass stack here in April during the spring run — one of the best river fishing setups.', always:true},
+  ],
+  // Defaults for locations without detailed data
+  default: [
+    {name:'Main Fishing Bank', detail:'Start at the most accessible bank and look for structure: fallen trees, dock pilings, rocks, and weed edges. These are always the best starting points.', always:true},
+    {name:'Any Visible Shade / Cover', detail:'In April, bass and crappie relate to overhead cover and shade. Any dock, overhanging tree, or brush pile is worth several casts.', always:true},
+    {name:'Inlet / Outflow Areas', detail:'Where water enters or leaves the lake concentrates oxygen and baitfish. Always worth checking first.', shallow:true},
+  ],
+};
+
+function showRegion(key) {
+  document.querySelectorAll('.loc-group').forEach(g => g.classList.remove('visible'));
+  document.querySelectorAll('.rtab').forEach(t => t.classList.remove('active'));
+  document.getElementById('rg-' + key).classList.add('visible');
+  event.target.classList.add('active');
+}
+
+function selectLoc(card, key) {
+  document.querySelectorAll('.loc-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  state.loc = key;
+}
+
+function selectPill(key, btn, val) {
+  btn.closest('.pills').querySelectorAll('.pill').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  state[key] = val;
+}
+
+function getRecommendation() {
+  if (!state.fish) { document.getElementById('missing-msg-fish').textContent = 'Please select what you\'re targeting.'; return; }
+  document.getElementById('missing-msg-fish').textContent = '';
+  buildResult();
+}
+
+function getFishMovement(time, sky) {
+  if (time === 'night') return { title:'🌙 Night — Fish Roaming Shallow & Aggressive', depthPct:22, moveText:'Water temp evens out top-to-bottom at night — no hot surface layer pushing fish down. Bass and crappie move very shallow (1–4 ft) to feed on baitfish near the bank. One of the most underrated windows in April. Stay quiet — no lights in the water, no splashing.' };
+  if (time === 'dawn') return { title:'🌅 Dawn — Best Window of the Day', depthPct:18, moveText:'Water is at its coolest and most oxygenated. Fish are still in shallow feeding mode from the night. The first 90 minutes after sunrise is statistically the top time on the water in April. They\'re sitting in 2–5 ft along the bank.' };
+  if (time === 'morning') return { title:'☀️ Morning — Active, Moving to Structure', depthPct:32, moveText:'Surface water is warming but hasn\'t hit uncomfortable levels. Bass are still fairly shallow (3–6 ft) but shifting toward structure — docks, fallen trees, brush — rather than open bank. Work dock edges and cover.' };
+  if (time === 'midday') {
+    if (sky === 'overcast' || sky === 'rainy') return { title:'🌞 Midday — Overcast Keeps Fish Higher', depthPct:42, moveText:'No direct sun means the surface hasn\'t baked. Fish stay shallower than a sunny midday — maybe 4–7 ft. Cloud cover is working in your favor right now. Still focus on structure but don\'t go too deep.' };
+    return { title:'🌞 Midday Sunny — Fish Deep or in Shade', depthPct:80, moveText:'Sun is heating the top 3–4 ft of water. Fish have moved into shaded structure (under docks, brush) or dropped to 8–15 ft where it\'s cooler. Don\'t waste casts on open shallow water. Find shade or go deep.' };
+  }
+  if (time === 'afternoon') return { title:'🌤️ Afternoon — Starting to Come Back Up', depthPct:52, moveText:'Surface is cooling from peak midday heat. Fish begin shifting from deep structure back toward mid-depth (5–8 ft) as afternoon goes on. Work transition areas — drop-offs and edges between deep and shallow.' };
+  if (time === 'evening') return { title:'🌇 Evening — Second Best Window, Back Shallow', depthPct:24, moveText:'As sun drops, surface cools and fish move back shallow to feed. Aggressive and easy to find — back in 2–5 ft along bank structure and coves. Evening topwater can be explosive in April. Second best window of the day.' };
+  return { title:'Fish Movement', depthPct:40, moveText:'' };
+}
+
+function getSpots(loc, time, sky) {
+  const isDeep = (time === 'midday' && (sky === 'sunny' || sky === 'partly'));
+  const isShallow = ['night','dawn','morning','evening'].includes(time) || sky === 'overcast' || sky === 'rainy';
+  const spots = spotData[loc] || spotData.default;
+  return [...spots].sort((a,b) => {
+    const sA = (a.always?3:0)+(isShallow&&a.shallow?2:0)+(isDeep&&a.deep?2:0);
+    const sB = (b.always?3:0)+(isShallow&&b.shallow?2:0)+(isDeep&&b.deep?2:0);
+    return sB - sA;
+  });
+}
+
+function getLures(sky, water, temp, fish, time) {
+  const lures = [];
+  const isNight = time === 'night';
+  const isMidSun = time === 'midday' && (sky === 'sunny' || sky === 'partly');
+
+  if (fish === 'smallmouth') {
+    lures.push({name:'Tube Bait (smoke/green)', reason:'The #1 smallmouth lure. Cast upstream, let it bounce naturally along the bottom with current. Mimic a crawfish perfectly.'});
+    lures.push({name:'Small Jig (1/8 oz, brown)', reason:'Drag slowly along rocky bottom. Smallmouth can\'t resist a brown/orange jig in April — crawfish are their main food.'});
+    lures.push({name:'Ned Rig (Z-Man)', reason:'Finesse presentation for clear-water smallmouth. Barely move it. The buoyant tail stands up on bottom and drives them crazy.'});
+  } else if (fish === 'bass' || fish === 'anything') {
+    if (isNight) {
+      lures.push({name:'Black Jig w/ Crawfish Trailer', reason:'At night, bass hunt by vibration and silhouette. Black creates the strongest outline. Drag it slowly along the bottom near the bank.'});
+      lures.push({name:'Buzzbait (black)', reason:'Night topwater is exciting and productive. Surface disturbance draws bass up. Slow, steady retrieve along the bank.'});
+    }
+    if (water === 'murky' || water === 'stained') {
+      lures.push({name:'Spinnerbait (chartreuse/white)', reason:'Spinning blade vibrates through dark water — fish feel it before they see it. Slow-roll at 2–5 ft near the bottom.'});
+      lures.push({name:'Chatterbait / Bladed Jig', reason:'Combines flash and vibration. Perfect for murky spring water. Work it slow through shallow cover.'});
+    }
+    if (water === 'clear') {
+      lures.push({name:'Shaky Head (green pumpkin worm)', reason:'Clear water demands subtlety. Natural-colored soft plastic on a light shaky head — the most consistent clear-water April lure.'});
+      lures.push({name:'Shallow Crankbait (shad color)', reason:'Covers water fast in clear conditions. Natural shad color, shallow diver — pause-and-go retrieve.'});
+    }
+    if ((sky === 'overcast' || sky === 'rainy') && !isNight) {
+      lures.push({name:'Topwater Popper / Frog', reason:'Overcast is prime topwater time — fish sit higher and are bolder. Work it slow with long pauses. Be ready for explosive strikes.'});
+    }
+    if (isMidSun) {
+      lures.push({name:'Drop Shot (finesse worm, 4")', reason:'When fish are deep in midday sun, a finesse drop shot at their depth is most effective. Subtle, slow, right in their face.'});
+    }
+    if (temp === 'cold' || temp === 'cool') {
+      lures.push({name:'Football Jig (brown/orange)', reason:'Cold water means slow down. Heavy football jig dragged painfully slowly = a crawfish. Bass\'s #1 April food source.'});
+    }
+    if (lures.length < 2) {
+      lures.push({name:'Ned Rig (Z-Man)', reason:'Most versatile rig ever. Works in almost any condition for multiple species. Green pumpkin or black/blue.'});
+    }
+  }
+  if (fish === 'crappie' || fish === 'anything') {
+    lures.push({name:'Curly-tail Grub on 1/16 oz Jig', reason:'The ultimate April crappie lure. Jig vertically next to dock posts and brush at 3–5 ft. Pink, white, or chartreuse.'});
+    lures.push({name:'Live Minnow on Bobber', reason:'Set bobber at 3–5 ft near any visible structure. Crappie can\'t resist a live minnow during spawn.'});
+  }
+  if (fish === 'catfish') {
+    lures.push({name:'Chicken Liver on Bottom Rig', reason:'Scent is everything for catfish. Heavy Carolina rig, liver or stink bait, cast to bottom near current breaks or structure.'});
+    lures.push({name:'Cut Shad', reason:'Missouri catfish love cut shad. Circle hook on a heavy bottom rig — let them run with it before you set.'});
+  }
+  if (fish === 'bluegill') {
+    lures.push({name:'Live Cricket on #8 Hook', reason:'Bluegill can\'t resist a cricket. Tiny bobber, 4lb line, small hook near bank edges. Ask at Walmart sporting goods.'});
+    lures.push({name:'1/32 oz Beetle Spin (white/chartreuse)', reason:'Classic small lure — perfect along weedy banks for bluegill in spring. Very cheap at Walmart.'});
+  }
+  return lures.slice(0, 3);
+}
+
+function getColors(sky, water, time) {
+  const isNight = ['night','dawn','evening'].includes(time);
+  if (water === 'murky') return { colors:[{name:'Chartreuse',hex:'#d4f542'},{name:'Bright Orange',hex:'#ff6b1a'},{name:'White',hex:'#f0f0f0'}], reason:'Murky water = go loud. Chartreuse is the #1 murky-water color. Fish detect it in near-zero visibility.' };
+  if (water === 'stained') {
+    if (isNight) return { colors:[{name:'Black',hex:'#1a1a1a'},{name:'Chartreuse',hex:'#d4f542'},{name:'Dark Blue',hex:'#1a1a4e'}], reason:'At night in stained water, black creates the strongest silhouette. Chartreuse if there\'s any ambient light.' };
+    return { colors:[{name:'Chartreuse',hex:'#d4f542'},{name:'Watermelon Red',hex:'#a83248'},{name:'Black/Blue',hex:'#1a1a4e'}], reason:'Stained water needs contrast. Bright for reaction strikes, dark for silhouette — both work.' };
+  }
+  if (water === 'clear') return { colors:[{name:'Green Pumpkin',hex:'#5a7a2a'},{name:'Natural Shad',hex:'#9aacb8'},{name:'Smoke/Clear',hex:'#c8c8c8'}], reason:'Clear water = match nature. Fish can see everything — subtle and natural wins. Avoid bright colors.' };
+  if (water === 'green') return { colors:[{name:'White/Pearl',hex:'#f0f0ee'},{name:'Chartreuse',hex:'#d4f542'},{name:'Yellow',hex:'#f5d020'}], reason:'White and chartreuse stand out most against green water. Pearl is especially effective.' };
+  return { colors:[{name:'Chartreuse',hex:'#d4f542'},{name:'Green Pumpkin',hex:'#5a7a2a'}], reason:'All-purpose colors for variable conditions.' };
+}
+
+function getWalmart(fish, water, time) {
+  const items = [];
+  const isNight = time === 'night';
+  if (water === 'murky' || water === 'stained') {
+    items.push({name:'Johnson Beetle Spin — Chartreuse', detail:'One of the best murky-water lures ever. Works for bass, crappie, and bluegill. Spinner section.', price:'~$4–6'});
+    items.push({name:'Strike King Spinnerbait (3/8 oz, Chart/White)', detail:'Reliable brand stocked at most Walmarts. Get 3/8 oz size for spring bass.', price:'~$5–7'});
+  }
+  if (water === 'clear') {
+    items.push({name:'Zoom Trick Worm — Green Pumpkin', detail:'Classic soft plastic for clear water. Texas rig or shaky head. Pack of 20 in soft plastics section.', price:'~$4–5'});
+  }
+  if (fish === 'crappie' || fish === 'anything') {
+    items.push({name:'Bobby Garland Crappie Grubs (Multi-pack)', detail:'Small curly tail grubs made for crappie. Get the assorted color pack — pink, white, chartreuse in one.', price:'~$4–5'});
+  }
+  if (fish === 'catfish' || fish === 'anything') {
+    items.push({name:'Magic Bait Catfish Dip Bait', detail:'Stinky but effective. Use the included dip worm or bait holder hook. Catfish bait section.', price:'~$4–6'});
+    items.push({name:'Chicken Liver — Meat Section', detail:'Grocery aisle, not the fishing aisle. Best natural catfish bait, way cheaper than packaged bait.', price:'~$2–3'});
+  }
+  if (fish === 'bluegill' || fish === 'anything') {
+    items.push({name:'Live Crickets (Sporting Goods counter)', detail:'Most STL Walmarts carry live crickets. Best bluegill bait in April. Ask at the counter.', price:'~$3'});
+  }
+  if (fish === 'smallmouth') {
+    items.push({name:'Z-Man TRD (Ned Rig kit)', detail:'The best finesse kit for smallmouth. Green pumpkin or natural color. Ned head + soft bait combo pack.', price:'~$7–10'});
+  }
+  if (isNight) {
+    items.push({name:'Clip-on Bobber Lights / Glow Sticks', detail:'Lets you see your bobber and line at night. Fishing accessories peg hooks.', price:'~$3–5'});
+  }
+  items.push({name:'Berkley Gulp! Nightcrawlers', detail:'Universal backup bait — works for everything. Always keep these in your box.', price:'~$5–7'});
+  return items.slice(0,5);
+}
+
+function getProTip(sky, water, temp, wind, fish, time, loc) {
+  if (loc === 'bigriver' || loc === 'bigriverarnold') return 'Big River has some of the clearest water near STL and the best wild smallmouth. Go light — 6lb line max, small natural presentations. Wade quietly upstream. The trophy designation means the fish get big here because people have to release them.';
+  if (loc === 'cuivreisland') return 'Cuivre Island is worth the longer drive. The Mississippi backwater sloughs are completely different fishing from any STL-area lake — you may be the only person there. Spawn crappie stack in flooded timber in April like nowhere else nearby.';
+  if (loc === 'missouririver' || loc === 'klondike') return 'The Missouri River spring white bass run is happening RIGHT NOW in April. White bass stack in current seams chasing baitfish moving upstream. Small white or chartreuse spinnerbaits or jigs worked in the current will get hammered. This bite doesn\'t last — fish it while it\'s hot.';
+  if (time === 'night') return 'Night fishing in April is seriously underrated. The water temp is even, zero boat traffic, and bass feed aggressively in the dark. Stay quiet — no splashing, no lights shining in the water. The biggest fish of your season might be sitting 5 feet from the bank.';
+  if (time === 'midday' && (sky === 'sunny' || sky === 'partly')) return 'Midday sun is the hardest window to fish. One dock can hold 10 bass. Cast parallel to the dock from the side — not from the end — so your lure stays in the shade zone for the whole retrieve.';
+  if (sky === 'overcast' && (water === 'murky' || water === 'stained')) return 'Overcast + murky water is a sweet spot in April — fish are aggressive and less spooked. Move faster than normal and cover water. A spinnerbait or chatterbait lets you search a whole cove in 20 minutes.';
+  if (wind === 'strong') return 'Wind is your friend — it disorients baitfish and oxygenates the water. Cast INTO the wind-blown bank. Fish stack there to pick off confused baitfish. The wavy side always outfishes the calm side.';
+  if (temp === 'cold') return 'Cold water = slow metabolism. Count to 10 after your lure hits before you start retrieving. When you think you\'re slow enough — go slower. Fish won\'t chase. Bring the bait to them.';
+  if (time === 'dawn') return 'You picked the best window of the day. The very first cast into a fresh untouched cove at dawn is often the best cast of the whole trip. Don\'t waste the first 30 minutes setting up — be ready to cast the moment there\'s enough light.';
+  return 'April spawn tip: when you catch a bass in a spot, don\'t leave. Cast right back to the same place 2–3 more times. Multiple fish stack in the same spawning area and the commotion of one catch can trigger the others.';
+}
+
+// ── MY LAKES — persistent storage ──────────────────────────────────────────
+const STORAGE_KEY = 'castSmart_myLakes';
+
+async function loadCustomLakes() {
+  let lakes = [];
+  try {
+    const result = await window.storage.get(STORAGE_KEY);
+    if (result && result.value) lakes = JSON.parse(result.value);
+  } catch(e) { lakes = []; }
+  renderCustomLakes(lakes);
+  return lakes;
+}
+
+async function saveCustomLakes(lakes) {
+  try { await window.storage.set(STORAGE_KEY, JSON.stringify(lakes)); } catch(e) {}
+}
+
+async function addCustomLake() {
+  const name = document.getElementById('new-lake-name').value.trim();
+  const location = document.getElementById('new-lake-location').value.trim();
+  const type = document.getElementById('new-lake-type').value;
+  const notes = document.getElementById('new-lake-notes').value.trim();
+  if (!name) { alert('Please enter a name for the lake.'); return; }
+  if (!type) { alert('Please select a water type.'); return; }
+  const lakes = await loadCustomLakes();
+  const newLake = { id: 'custom_' + Date.now(), name, location, type, notes };
+  lakes.push(newLake);
+  await saveCustomLakes(lakes);
+  // Clear form
+  document.getElementById('new-lake-name').value = '';
+  document.getElementById('new-lake-location').value = '';
+  document.getElementById('new-lake-type').value = '';
+  document.getElementById('new-lake-notes').value = '';
+  renderCustomLakes(lakes);
+}
+
+async function deleteCustomLake(id) {
+  let lakes = await loadCustomLakes();
+  lakes = lakes.filter(l => l.id !== id);
+  await saveCustomLakes(lakes);
+  if (state.loc === id) state.loc = null;
+  renderCustomLakes(lakes);
+}
+
+function renderCustomLakes(lakes) {
+  const container = document.getElementById('custom-lakes-list');
+  if (!lakes || lakes.length === 0) {
+    container.innerHTML = '<div class="empty-lakes">No saved lakes yet.<br>Add one above — it\'ll be here every time you open the app.</div>';
+    return;
+  }
+  const typeLabels = { pond:'Small Pond', lake:'Lake', river:'River / Creek', reservoir:'Reservoir' };
+  container.innerHTML = lakes.map(l => `
+    <div class="loc-card custom-loc-card" onclick="selectLoc(this,'${l.id}')" id="card-${l.id}">
+      <button class="delete-lake-btn" onclick="event.stopPropagation();deleteCustomLake('${l.id}')">✕ Remove</button>
+      <div class="loc-name">${l.name}</div>
+      ${l.location ? `<div class="loc-area">📍 ${l.location}</div>` : ''}
+      <div class="loc-tags">
+        <span class="tag orange">${typeLabels[l.type] || l.type}</span>
+        ${l.notes ? `<span class="tag">${l.notes.substring(0,40)}${l.notes.length>40?'…':''}</span>` : ''}
+        <span class="tag green">Custom Spot</span>
+      </div>
+    </div>`).join('');
+  // Re-add custom locations to locNames and spot data
+  lakes.forEach(l => {
+    locNames[l.id] = l.name + (l.location ? ` (${l.location})` : '');
+    spotData[l.id] = getCustomSpots(l.type, l.notes);
+  });
+}
+
+function getCustomSpots(type, notes) {
+  const hasDock = notes && notes.toLowerCase().includes('dock');
+  const isShallow = notes && (notes.toLowerCase().includes('shallow') || type === 'pond');
+  const base = [
+    { name: 'Any Visible Structure', detail: 'Start at whatever structure you can see — fallen trees, dock pilings, rocks, weed lines. These are always where fish hold.', always: true },
+    { name: hasDock ? 'Fish the Dock' : 'Shaded Bank / Cover', detail: hasDock ? 'Work every piling systematically. Bass and crappie park under docks, especially mid-day. Pitch a jig tight to each post.' : 'Find the most shaded bank — overhanging trees, bushes touching water. Fish hold in shade during daylight.', always: true },
+    { name: type === 'river' || type === 'creek' ? 'Current Break / Eddy' : 'Deepest Visible Water', detail: type === 'river' || type === 'creek' ? 'Cast upstream of any rock or obstruction and let your lure drift naturally into the calm pocket behind it. Bass and smallmouth park here.' : 'The deepest area is a midday refuge. If you can spot a color change in the water (darker = deeper), that\'s your midday target.', deep: true },
+  ];
+  if (isShallow) {
+    base.push({ name: 'Shallow Edges — Spawn Check', detail: 'April = spawn season. Walk the shallow edges slowly and look for bedding fish (circular cleared spots on bottom). If you see them, pitch a lure past the bed and drag it through.', shallow: true });
+  }
+  return base;
+}
+
+// Load saved lakes on startup
+loadCustomLakes();
+
+// ── WEATHER API ─────────────────────────────────────────────────────────────
+const OWM_KEY = '9e751a40a370416832496e123e1098cc';
+
+async function loadWeather() {
+  const btn = document.getElementById('weather-btn');
+  const status = document.getElementById('weather-status');
+  const loaded = document.getElementById('weather-loaded');
+  btn.disabled = true;
+  status.textContent = '📡 Getting your location…';
+  loaded.style.display = 'none';
+
+  if (!navigator.geolocation) {
+    status.textContent = '❌ Location not available on this device.';
+    btn.disabled = false;
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    status.textContent = '🌐 Fetching weather…';
+    const { latitude: lat, longitude: lon } = pos.coords;
+    try {
+      const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OWM_KEY}&units=imperial`);
+      const data = await res.json();
+      if (data.cod !== 200) throw new Error(data.message);
+
+      const tempF = Math.round(data.main.temp);
+      const windMph = Math.round(data.wind.speed);
+      const cloudPct = data.clouds.all;
+      const weatherId = data.weather[0].id;
+
+      // Map to app conditions
+      let sky, temp, wind;
+
+      // Sky
+      if (weatherId >= 200 && weatherId < 600) sky = 'rainy';
+      else if (cloudPct >= 80) sky = 'overcast';
+      else if (cloudPct >= 30) sky = 'partly';
+      else sky = 'sunny';
+
+      // Temp
+      if (tempF < 45) temp = 'cold';
+      else if (tempF < 60) temp = 'cool';
+      else temp = 'warm';
+
+      // Wind
+      if (windMph <= 5) wind = 'calm';
+      else if (windMph <= 14) wind = 'light';
+      else wind = 'strong';
+
+      // Auto-select pills
+      autoSelectPill('sky', sky);
+      autoSelectPill('temp', temp);
+      autoSelectPill('wind', wind);
+      state.sky = sky; state.temp = temp; state.wind = wind;
+
+      const skyLabel = {sunny:'☀️ Sunny', partly:'⛅ Partly Cloudy', overcast:'☁️ Overcast', rainy:'🌧️ Rainy'}[sky];
+      const tempLabel = {cold:'🧊 Cold', cool:'🌊 Cool', warm:'🔆 Warm'}[temp];
+      const windLabel = {calm:'😌 Calm', light:'🍃 Light Breeze', strong:'💨 Windy'}[wind];
+
+      loaded.style.display = 'block';
+      loaded.innerHTML = `✅ <strong>${data.name}</strong> — ${tempF}°F · ${skyLabel} · ${windLabel}<br><span style="color:var(--muted);font-size:11px;">Sky, temp, and wind auto-filled. Set water color manually.</span>`;
+      status.textContent = '';
+      btn.textContent = '🔄 Refresh Weather';
+      btn.disabled = false;
+
+    } catch(err) {
+      status.textContent = '❌ Couldn\'t load weather. Check connection.';
+      btn.disabled = false;
+    }
+  }, () => {
+    status.textContent = '❌ Location permission denied. Allow location and try again.';
+    btn.disabled = false;
+  });
+}
+
+function autoSelectPill(key, val) {
+  const groupId = key + '-group';
+  const group = document.getElementById(groupId);
+  if (!group) return;
+  group.querySelectorAll('.pill').forEach(b => {
+    b.classList.remove('selected');
+    // Match by onclick attribute value
+    if (b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + val + "'")) {
+      b.classList.add('selected');
+    }
+  });
+}
+
+// ── COMBINED CONDITION LURE LOGIC (replaces old getLures) ───────────────────
+function getLures(sky, water, temp, fish, time) {
+  // Each lure scored against the full combination of conditions
+  const isNight   = time === 'night';
+  const isDawn    = time === 'dawn' || time === 'evening';
+  const isMidSun  = time === 'midday' && (sky === 'sunny' || sky === 'partly');
+  const isMidOver = time === 'midday' && (sky === 'overcast' || sky === 'rainy');
+  const isOvercast = sky === 'overcast' || sky === 'rainy';
+  const isMurky   = water === 'murky' || water === 'stained';
+  const isClear   = water === 'clear' || water === 'green';
+  const isCold    = temp === 'cold';
+  const isCool    = temp === 'cool';
+  const isWarm    = temp === 'warm';
+
+  const ALL_LURES = [
+    // ── BASS / ANYTHING combos ──────────────────────────────────────────────
+    {
+      name: 'Black Buzzbait',
+      reason: 'Night + shallow = buzzbait territory. Surface disturbance draws bass up from below. Slow steady retrieve along the bank.',
+      score: (isNight ? 5 : 0) + (isMurky ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Black Jig w/ Crawfish Trailer',
+      reason: 'Night fishing demands a big silhouette. Black creates the strongest outline in zero visibility. Drag it slowly along the bottom.',
+      score: (isNight ? 4 : 0) + (isCold||isCool ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Topwater Popper / Frog',
+      reason: isOvercast ? 'Overcast + active surface window = topwater prime time. Fish sit higher, bolder. Long pauses, be ready for explosive strikes.' : 'Dawn/dusk topwater window. Work it slow with pauses along the bank edges.',
+      score: (isOvercast && !isNight ? 4 : 0) + (isDawn && !isNight ? 3 : 0) + (isWarm ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Chatterbait / Bladed Jig',
+      reason: isMurky && isOvercast ? 'IDEAL combo — murky + overcast means fish are aggressive and can\'t see well. Chatterbait vibration + flash covers water fast. Move quickly through the cove.' : isMurky ? 'Murky water + vibrating blade = fish can feel it coming. Slow-roll at 2–4 ft.' : 'Good all-around search bait for active fish.',
+      score: (isMurky ? 3 : 0) + (isOvercast ? 2 : 0) + (!isCold ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Spinnerbait (Chartreuse/White)',
+      reason: isMurky && isCool ? 'Murky + cool water is the spinnerbait\'s home turf. Slow-roll it near the bottom — the blade vibrates even at low speed. Bass feel it before they see it.' : 'Versatile search bait. The blade creates flash and vibration that works in off-color water.',
+      score: (isMurky ? 3 : 0) + (isCool||isCold ? 1 : 0) + (isOvercast ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Football Jig (Brown/Orange)',
+      reason: isCold && isMidSun ? 'Cold water + midday = fish are deep and sluggish. A heavy football jig dragged inch-by-inch along the bottom is the best way to get a cold, lethargic bass to bite.' : 'Cold/cool water = crawfish time. Drag painfully slow. When you think slow enough — go slower.',
+      score: (isCold ? 4 : 0) + (isCool ? 2 : 0) + (isMidSun ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Drop Shot (Finesse Worm)',
+      reason: isMidSun && isClear ? 'Sunny midday + clear water = toughest conditions. Drop shot keeps your bait suspended at exactly the right depth where bass are hiding, with minimal movement that won\'t spook them.' : 'Finesse presentation for pressured or deep fish. Barely move it.',
+      score: (isMidSun ? 3 : 0) + (isClear ? 2 : 0) + (isCold||isCool ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Shaky Head (Green Pumpkin Worm)',
+      reason: isClear && !isMidSun ? 'Clear water + active fish = shaky head. The subtle, natural presentation in green pumpkin looks exactly like a real creature. Don\'t rush it.' : 'Clear water demands subtlety. Natural colors and slow presentation win.',
+      score: (isClear ? 3 : 0) + (!isMidSun ? 1 : 0) + (isCool||isWarm ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Shallow Crankbait (Shad Color)',
+      reason: isClear && isOvercast ? 'Clear water + overcast = bass are aggressive and moving. A crankbait covers water fast and triggers reaction strikes. Pause-and-go retrieve.' : 'Good covering bait in clear-to-stained conditions when fish are active.',
+      score: (isClear ? 2 : 0) + (isOvercast ? 2 : 0) + (isWarm ? 1 : 0) + (!isCold ? 1 : 0),
+      for: ['bass','anything'],
+    },
+    {
+      name: 'Ned Rig (Z-Man TRD)',
+      reason: 'The most versatile lure ever made. Works in almost any condition — the buoyant tail stands up on bottom and looks alive without any movement. Never leave home without it.',
+      score: 1, // always a fallback / bonus option
+      for: ['bass','anything','smallmouth'],
+    },
+    // ── SMALLMOUTH ──────────────────────────────────────────────────────────
+    {
+      name: 'Tube Bait (Smoke/Green, 3")',
+      reason: isClear ? 'Clear river water + tube = perfect match. Cast upstream, let it bounce along the rocky bottom naturally with current. Smallmouth think it\'s a crawfish.' : 'Tube on the bottom = crawfish. Cast upstream, let it drift naturally. #1 smallmouth producer.',
+      score: (isClear ? 3 : 0) + 3,
+      for: ['smallmouth'],
+    },
+    {
+      name: 'Small Jig (1/8 oz, Brown/Orange)',
+      reason: isCold||isCool ? 'Cold + rocky bottom + brown jig = irresistible to smallmouth. Drag it as slowly as possible. Don\'t hop it — drag it.' : 'Drag slowly along rocky bottom. Smallmouth can\'t resist brown/orange = crawfish.',
+      score: (isCold||isCool ? 3 : 0) + 2,
+      for: ['smallmouth'],
+    },
+    {
+      name: 'Inline Spinner (Mepps #2, Silver)',
+      reason: isOvercast ? 'Overcast + inline spinner = active smallmouth will chase it. Cast across current and let it swing downstream. Classic river technique.' : 'Cast across current, let it swing. Smallmouth instinctively attack the flash.',
+      score: (isOvercast ? 2 : 0) + (isWarm ? 1 : 0) + 1,
+      for: ['smallmouth'],
+    },
+    // ── CRAPPIE ─────────────────────────────────────────────────────────────
+    {
+      name: 'Curly-tail Grub on 1/16 oz Jig',
+      reason: 'The ultimate April crappie lure. Jig vertically next to dock posts and brush at 3–5 ft. Pink, white, or chartreuse depending on water clarity.',
+      score: 4,
+      for: ['crappie','anything'],
+    },
+    {
+      name: 'Live Minnow on Bobber',
+      reason: isCold ? 'Cold water = live minnow wins. Set bobber at 4–5 ft (deeper than usual) near structure. Crappie are holding deeper in cold water.' : 'Set bobber at 3–5 ft near any visible structure. Can\'t beat live bait during spawn.',
+      score: (isCold ? 2 : 0) + 3,
+      for: ['crappie','anything'],
+    },
+    // ── CATFISH ─────────────────────────────────────────────────────────────
+    {
+      name: 'Chicken Liver on Bottom Rig',
+      reason: isNight ? 'Night + chicken liver = catfish at their most active and most vulnerable. They hunt almost entirely by smell after dark. Heavy bottom rig, let them run with it.' : 'Scent is everything for catfish. Heavy Carolina rig, fished on the bottom near current breaks.',
+      score: (isNight ? 2 : 0) + 3,
+      for: ['catfish'],
+    },
+    {
+      name: 'Cut Shad (Bottom Rig)',
+      reason: 'Missouri catfish love fresh cut shad. Circle hook on a heavy rig — let them take it before you set. Best near current breaks and ledges.',
+      score: 3,
+      for: ['catfish'],
+    },
+    {
+      name: 'Stink Bait (Magic Bait / Punch Bait)',
+      reason: isWarm ? 'Warm water = catfish metabolism is up and they\'re chasing scent hard. Punch bait on a treble hook or dip worm, dropped straight to the bottom.' : 'Strong scent trail in any conditions. Treble hook or dip worm, bottom rig.',
+      score: (isWarm ? 2 : 0) + 2,
+      for: ['catfish'],
+    },
+    // ── BLUEGILL ────────────────────────────────────────────────────────────
+    {
+      name: 'Live Cricket on #8 Hook',
+      reason: 'Bluegill literally cannot resist a cricket. Tiny bobber, 4lb line, small hook near bank edges. Ask for live crickets at the Walmart sporting goods counter.',
+      score: 4,
+      for: ['bluegill','anything'],
+    },
+    {
+      name: '1/32 oz Beetle Spin (White or Chartreuse)',
+      reason: isMurky ? 'Murky water + Beetle Spin chartreuse = bluegill can find it. This little lure has been catching STL-area bluegill for 50 years.' : 'Classic spring bluegill lure. Cast along weedy banks, slow retrieve.',
+      score: (isMurky ? 1 : 0) + 3,
+      for: ['bluegill','anything'],
+    },
+    {
+      name: 'Small Wax Worm / Red Worm on Jig',
+      reason: isCold ? 'Cold water bluegill are slow and won\'t chase much. Drop a tiny wax worm or red worm straight down under a bobber. Tiny movement, right in their face.' : 'Simple and effective. Drop it near any visible cover.',
+      score: (isCold ? 3 : 0) + 2,
+      for: ['bluegill'],
+    },
+  ];
+
+  // Filter to relevant fish type, score, return top 3
+  const relevant = ALL_LURES
+    .filter(l => l.for.includes(fish))
+    .sort((a,b) => b.score - a.score);
+
+  // Always include at least one fallback (Ned Rig) if we have fewer than 2
+  const result = relevant.slice(0, 3);
+  if (result.length < 2 && !result.find(r => r.name.includes('Ned'))) {
+    result.push(ALL_LURES.find(l => l.name.includes('Ned')));
+  }
+  return result.slice(0, 3);
+}
+
+function buildResult() {
+  const {loc,time,sky,water,temp,wind,fish,recentWeather} = state;
+
+  // Reg warning
+  const regWarn = document.getElementById('reg-warning');
+  if (specialRegs[loc]) { regWarn.textContent = specialRegs[loc]; regWarn.style.display = 'block'; }
+  else { regWarn.style.display = 'none'; }
+
+  // Fish movement — adjusted for recent weather
+  let mv = getFishMovement(time, sky);
+  mv = applyRecentWeatherToDepth(mv, recentWeather);
+  document.getElementById('movement-title').textContent = mv.title;
+  document.getElementById('movement-text').textContent = mv.moveText;
+  setTimeout(()=>{ document.getElementById('depth-bar').style.width = mv.depthPct+'%'; }, 200);
+
+  // Recent weather impact panel
+  const rwImpacts = getRecentWeatherImpact(recentWeather);
+  const rwPanel = document.getElementById('recent-weather-impact');
+  if (rwImpacts && rwImpacts.length > 0) {
+    document.getElementById('rw-impact-text').innerHTML = rwImpacts.map(i => `<div style="font-size:13px;line-height:1.6;margin-bottom:10px;">${i}</div>`).join('');
+    rwPanel.style.display = 'block';
+  } else {
+    rwPanel.style.display = 'none';
+  }
+
+  // Spots
+  const spots = getSpots(loc, time, sky);
+  const spotList = document.getElementById('spot-list');
+  spotList.innerHTML = '';
+  spots.forEach((s,i) => {
+    const rc = i===0?'rank-1':i===1?'rank-2':'rank-3';
+    const rl = i===0?'🥇 Best Right Now':i===1?'🥈 Also Try':'🥉 Backup';
+    spotList.innerHTML += `<div class="spot-card"><div class="spot-rank ${rc}">${rl}</div><div class="spot-name">${s.name}</div><div class="spot-detail">${s.detail}</div></div>`;
+  });
+
+  // Lures
+  const lures = getLures(sky, water, temp, fish, time);
+  const lureList = document.getElementById('lure-list');
+  lureList.innerHTML = '';
+  lures.forEach((l,i) => {
+    lureList.innerHTML += `<div class="lure-card ${i===0?'top':''}"><div class="lure-top-row"><div class="lure-name">${l.name}</div><div class="lure-badge ${i===0?'badge-best':'badge-good'}">${i===0?'BEST PICK':'GOOD CHOICE'}</div></div><div class="lure-detail">${l.reason}</div></div>`;
+  });
+
+  // Colors
+  const cd = getColors(sky, water, time);
+  document.getElementById('color-list').innerHTML = cd.colors.map(c=>`<div class="swatch"><div class="swatch-dot" style="background:${c.hex};border:1px solid rgba(255,255,255,0.15)"></div>${c.name}</div>`).join('');
+  document.getElementById('color-reason').textContent = cd.reason;
+
+  // Walmart
+  const wItems = getWalmart(fish, water, time);
+  document.getElementById('walmart-list').innerHTML = wItems.map(w=>`<div class="walmart-card"><div class="walmart-item">${w.name}</div><div class="walmart-detail">${w.detail}</div><div class="walmart-price">${w.price}</div></div>`).join('');
+
+  // Pro tip
+  document.getElementById('pro-tip').innerHTML = '💡 <strong>Pro Tip:</strong> ' + getProTip(sky, water, temp, wind, fish, time, loc);
+
+  document.getElementById('result-title').textContent = 'Game Plan: ' + (locNames[loc] || loc);
+
+  // Show result, hide wizard chrome
+  document.getElementById('wizard-nav').style.display = 'none';
+  for (let i = 0; i < TOTAL_SCREENS; i++) {
+    const s = document.getElementById('screen-' + i);
+    if (s) s.classList.remove('visible');
+  }
+  const panel = document.getElementById('result-panel');
+  panel.style.display = 'block';
+  setTimeout(()=> window.scrollTo({top:0,behavior:'smooth'}), 50);
+}
+
+function resetAll() {
+  Object.keys(state).forEach(k => state[k] = k === 'recentWeather' ? [] : null);
+  document.querySelectorAll('.loc-card').forEach(c=>c.classList.remove('selected'));
+  document.querySelectorAll('.pill').forEach(b=>b.classList.remove('selected'));
+  document.querySelectorAll('.rw-card').forEach(c=>c.classList.remove('selected'));
+  ['missing-msg-loc','missing-msg-time','missing-msg-cond','missing-msg-fish'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.textContent='';
+  });
+  document.getElementById('result-panel').style.display = 'none';
+  document.getElementById('depth-bar').style.width = '0%';
+  document.getElementById('wizard-nav').style.display = 'flex';
+  currentScreen = 0;
+  for (let i = 0; i < TOTAL_SCREENS; i++) {
+    const s = document.getElementById('screen-' + i);
+    if (s) s.classList.remove('visible');
+  }
+  document.getElementById('screen-0').classList.add('visible');
+  for (let i = 0; i < TOTAL_SCREENS; i++) {
+    const d = document.getElementById('dot-' + i);
+    if (d) d.className = 'dot' + (i === 0 ? ' active' : '');
+  }
+  document.getElementById('back-btn').style.visibility = 'hidden';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+</script>
+
+<!-- ADMIN PANEL -->
+<div id="admin-panel" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:999;overflow-y:auto;padding:24px 16px 60px;">
+  <div style="max-width:480px;margin:0 auto;">
+    <div class="admin-header">⚙️ Cast Smart Admin</div>
+    <div class="admin-sub">Hidden panel — only you can see this</div>
+    <div id="admin-login-section">
+      <div class="admin-field"><label>Password</label>
+        <input type="password" id="admin-pw-input" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')adminLogin()">
+      </div>
+      <button class="admin-save-btn" onclick="adminLogin()">UNLOCK →</button>
+      <button class="admin-close-btn" onclick="closeAdmin()">← Back to App</button>
+    </div>
+    <div id="admin-content" style="display:none">
+      <div class="admin-msg" id="admin-msg" style="display:none"></div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--text);margin-bottom:12px;">➕ Add New Lake or Spot</div>
+      <div class="admin-field"><label>Name *</label><input type="text" id="a-name" placeholder="e.g. Stockton Lake — Ruark Bluff" maxlength="70"></div>
+      <div class="admin-field"><label>Location / Area *</label><input type="text" id="a-location" placeholder="e.g. Cedar County, off Hwy 32" maxlength="80"></div>
+      <div class="admin-field"><label>Region Tab *</label>
+        <select id="a-region">
+          <option value="" disabled selected>Choose region…</option>
+          <option value="fenton">Fenton / South STL</option>
+          <option value="westcounty">West County STL</option>
+          <option value="southcounty">South County / Hwy 30</option>
+          <option value="jeffco">Jefferson County</option>
+          <option value="stcharles">St. Charles County</option>
+          <option value="i70">I-70 / Hwy 70 Belt</option>
+          <option value="rivers">Rivers</option>
+          <option value="springfield">Springfield / Joplin Area</option>
+          <option value="lakeozarks">Lake of the Ozarks</option>
+          <option value="stockton">Stockton / Neosho Area</option>
+          <option value="custom">Other / Custom</option>
+        </select>
+      </div>
+      <div class="admin-field"><label>Water Type *</label>
+        <select id="a-type">
+          <option value="" disabled selected>Choose…</option>
+          <option value="lake">Lake</option>
+          <option value="pond">Pond</option>
+          <option value="river">River / Creek</option>
+          <option value="reservoir">Reservoir</option>
+        </select>
+      </div>
+      <div class="admin-field"><label>Fish Species (comma separated)</label><input type="text" id="a-species" placeholder="Bass, Crappie, Catfish, Walleye"></div>
+      <div class="admin-field"><label>🥇 Best Spot — Name &amp; Description</label><textarea id="a-spot1" placeholder="e.g. Ruark Bluff Point — Bass stack on the rocky point in 6–10ft. Cast parallel to the bluff with a crankbait."></textarea></div>
+      <div class="admin-field"><label>🥈 Second Spot</label><textarea id="a-spot2" placeholder="e.g. North Creek Arm — Crappie spawn in flooded timber. Jig vertically at 4ft."></textarea></div>
+      <div class="admin-field"><label>🥉 Backup Spot</label><textarea id="a-spot3" placeholder="e.g. Dam Face — Deep catfish. Heavy bottom rig with cut shad."></textarea></div>
+      <div class="admin-field"><label>Special Regulations</label><input type="text" id="a-regs" placeholder='e.g. 15" minimum on bass'></div>
+      <div class="admin-field"><label>Local Knowledge / Notes</label><textarea id="a-notes" placeholder="e.g. Water drops in summer. Best spring and fall. Avoid algae season."></textarea></div>
+      <button class="admin-save-btn" onclick="adminSaveLake()">💾 SAVE LAKE</button>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--text);margin:20px 0 10px;">All Saved Lakes</div>
+      <div id="admin-lake-list-inner"></div>
+      <button class="admin-close-btn" onclick="closeAdmin()">← Back to App</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── ADMIN ─────────────────────────────────────────────────────────────────────
+const ADMIN_PW = 'castmaster2025'; // Change this to whatever password you want
+const ADMIN_LAKES_KEY = 'castSmart_adminLakes';
+
+function openAdmin() {
+  document.getElementById('admin-panel').style.display = 'block';
+  document.getElementById('admin-pw-input').value = '';
+  document.getElementById('admin-content').style.display = 'none';
+  document.getElementById('admin-login-section').style.display = 'block';
+}
+function closeAdmin() {
+  document.getElementById('admin-panel').style.display = 'none';
+}
+function showAdminMsg(msg, type) {
+  const el = document.getElementById('admin-msg');
+  el.textContent = msg;
+  el.className = 'admin-msg ' + type;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+function adminLogin() {
+  if (document.getElementById('admin-pw-input').value === ADMIN_PW) {
+    document.getElementById('admin-login-section').style.display = 'none';
+    document.getElementById('admin-content').style.display = 'block';
+    loadAdminLakes();
+  } else {
+    document.getElementById('admin-pw-input').value = '';
+    document.getElementById('admin-pw-input').placeholder = 'Wrong password, try again';
+  }
+}
+
+async function adminSaveLake() {
+  const name     = document.getElementById('a-name').value.trim();
+  const location = document.getElementById('a-location').value.trim();
+  const region   = document.getElementById('a-region').value;
+  const type     = document.getElementById('a-type').value;
+  const species  = document.getElementById('a-species').value.trim();
+  const spot1    = document.getElementById('a-spot1').value.trim();
+  const spot2    = document.getElementById('a-spot2').value.trim();
+  const spot3    = document.getElementById('a-spot3').value.trim();
+  const regs     = document.getElementById('a-regs').value.trim();
+  const notes    = document.getElementById('a-notes').value.trim();
+
+  if (!name || !location || !region || !type) {
+    showAdminMsg('Name, location, region, and type are required.', 'error'); return;
+  }
+
+  let lakes = await loadAdminLakesData();
+  const id = 'admin_' + Date.now();
+  const speciesArr = species ? species.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const spots = [];
+  if (spot1) spots.push({ name: spot1.split('—')[0].trim(), detail: spot1.includes('—') ? spot1.split('—').slice(1).join('—').trim() : spot1, always: true });
+  if (spot2) spots.push({ name: spot2.split('—')[0].trim(), detail: spot2.includes('—') ? spot2.split('—').slice(1).join('—').trim() : spot2, always: true });
+  if (spot3) spots.push({ name: spot3.split('—')[0].trim(), detail: spot3.includes('—') ? spot3.split('—').slice(1).join('—').trim() : spot3, always: true });
+
+  const lake = { id, name, location, region, type, species: speciesArr, spots, regs, notes };
+  lakes.push(lake);
+  await saveAdminLakesData(lakes);
+  injectAdminLake(lake);
+
+  // Clear form
+  ['a-name','a-location','a-species','a-spot1','a-spot2','a-spot3','a-regs','a-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('a-region').value = '';
+  document.getElementById('a-type').value = '';
+  showAdminMsg('✅ ' + name + ' saved!', 'success');
+  loadAdminLakes();
+}
+
+async function loadAdminLakesData() {
+  try {
+    const r = await window.storage.get(ADMIN_LAKES_KEY);
+    return r && r.value ? JSON.parse(r.value) : [];
+  } catch(e) { return []; }
+}
+async function saveAdminLakesData(lakes) {
+  try { await window.storage.set(ADMIN_LAKES_KEY, JSON.stringify(lakes)); } catch(e) {}
+}
+
+async function deleteAdminLake(id) {
+  let lakes = await loadAdminLakesData();
+  lakes = lakes.filter(l => l.id !== id);
+  await saveAdminLakesData(lakes);
+  // Remove from app
+  delete locNames[id];
+  delete spotData[id];
+  if (specialRegs[id]) delete specialRegs[id];
+  loadAdminLakes();
+}
+
+async function loadAdminLakes() {
+  const lakes = await loadAdminLakesData();
+  const container = document.getElementById('admin-lake-list-inner');
+  if (!lakes || lakes.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px 0;">No lakes added yet.</div>';
+    return;
+  }
+  container.innerHTML = lakes.map(l => `
+    <div class="admin-lake-row">
+      <div><div class="admin-lake-name">${l.name}</div><div class="admin-lake-region">${l.location} · ${l.region}</div></div>
+      <button class="admin-delete-btn" onclick="deleteAdminLake('${l.id}')">✕ Remove</button>
+    </div>`).join('');
+  // Inject into app
+  lakes.forEach(l => injectAdminLake(l));
+}
+
+function injectAdminLake(lake) {
+  // Add to locNames
+  locNames[lake.id] = lake.name + ' (' + lake.location + ')';
+  // Add to spotData
+  spotData[lake.id] = lake.spots && lake.spots.length > 0 ? lake.spots : spotData.default;
+  // Add special reg if provided
+  if (lake.regs) specialRegs[lake.id] = '⚠️ ' + lake.name + ': ' + lake.regs;
+  // Add region tab if new
+  ensureRegionTab(lake.region, lake);
+  // Add card to the correct region group
+  addLakeCardToRegion(lake);
+}
+
+function ensureRegionTab(region, lake) {
+  const regionLabels = {
+    fenton:'Fenton / South', westcounty:'West County', southcounty:'South County / Hwy 30',
+    jeffco:'Jefferson Co.', stcharles:'St. Charles Co.', i70:'I-70 / Hwy 70 Belt',
+    rivers:'Rivers', springfield:'Springfield / Joplin', lakeozarks:'Lake of the Ozarks',
+    stockton:'Stockton / Neosho', custom:'Other'
+  };
+  // Create region group if it doesn't exist
+  let group = document.getElementById('rg-' + region);
+  if (!group) {
+    group = document.createElement('div');
+    group.className = 'loc-group';
+    group.id = 'rg-' + region;
+    document.querySelector('.region-tabs').parentNode.appendChild(group);
+    // Add tab button
+    const tabs = document.querySelector('.region-tabs');
+    // Insert before My Lakes tab
+    const myTab = document.getElementById('tab-mylakes');
+    const btn = document.createElement('button');
+    btn.className = 'rtab';
+    btn.textContent = regionLabels[region] || region;
+    btn.setAttribute('onclick', "showRegion('" + region + "')");
+    tabs.insertBefore(btn, myTab);
+  }
+}
+
+function addLakeCardToRegion(lake) {
+  const group = document.getElementById('rg-' + lake.region);
+  if (!group) return;
+  // Don't duplicate
+  if (document.getElementById('card-admin-' + lake.id)) return;
+  const speciesTags = (lake.species || []).map(s => `<span class="tag green">${s}</span>`).join('');
+  const regTag = lake.regs ? `<span class="tag red">Special regs</span>` : '';
+  const noteTag = lake.notes ? `<span class="tag">${lake.notes.substring(0,30)}${lake.notes.length>30?'…':''}</span>` : '';
+  const div = document.createElement('div');
+  div.className = 'loc-card';
+  div.id = 'card-admin-' + lake.id;
+  div.setAttribute('onclick', `selectLoc(this,'${lake.id}')`);
+  div.innerHTML = `
+    <div class="loc-name">${lake.name}</div>
+    <div class="loc-area">📍 ${lake.location}</div>
+    <div class="loc-tags">${speciesTags}${regTag}${noteTag}<span class="tag orange">${lake.type}</span></div>`;
+  group.appendChild(div);
+}
+
+// Check URL hash for /admin route
+function checkAdminRoute() {
+  if (window.location.hash === '#admin' || window.location.search === '?admin') {
+    openAdmin();
+  }
+}
+window.addEventListener('hashchange', () => {
+  if (window.location.hash === '#admin') openAdmin();
+});
+document.addEventListener('DOMContentLoaded', () => {
+  checkAdminRoute();
+  loadAdminLakes(); // Load any previously saved admin lakes into the app
+});
+
+// ── PWA SERVICE WORKER REGISTRATION ──────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

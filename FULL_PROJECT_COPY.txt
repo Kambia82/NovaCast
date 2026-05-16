@@ -1,0 +1,1706 @@
+=== FILE: src/App.tsx ===
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from './lib/supabase';
+import {
+  getFishMovement,
+  applyRecentWeatherToDepth,
+  getRecentWeatherImpact,
+  getBarometricImpact,
+  getGeneralBestRecommendation,
+  getSpots,
+  getLures,
+  getColors,
+  getWalmart,
+  getProTip,
+  getCustomSpots,
+  DEFAULT_SPOTS,
+  TOOLTIPS,
+  KNOT_GUIDES,
+} from './data/recommendations';
+import { REGION_LABELS, TYPE_LABELS } from './data/waterBodies';
+import type { Spot, Lure, ColorRec, WalmartItem } from './data/recommendations';
+import {
+  Cloud, Navigation, RefreshCw, Settings, Trash2, Droplets, Thermometer,
+  Wind, Heart, MapPin, Search, BookOpen, X, Info,
+} from 'lucide-react';
+
+interface WaterBodyRow {
+  id: string; key: string; name: string; location: string; region: string;
+  type: string; species: string[]; tags: { label: string; color: string }[];
+  latitude: number | null; longitude: number | null; spots: Spot[] | null; special_regs: string | null;
+}
+
+interface CustomLakeRow { id: string; name: string; location: string; type: string; notes: string; }
+interface AdminLakeRow { id: string; name: string; location: string; region: string; type: string; species: string[]; spots: Spot[]; special_regs: string; notes: string; }
+interface NearbyWaterBody { name: string; type: string; distance: number; lat: number; lon: number; }
+
+interface WizardState {
+  loc: string | null; locName: string | null; locLat: number | null; locLon: number | null;
+  time: string | null; sky: string | null; water: string | null; temp: string | null;
+  wind: string | null; pressure: string | null; fish: string | null; recentWeather: string[];
+}
+
+type AppView = 'welcome' | 'wizard' | 'result' | 'tacklebox' | 'reference';
+
+const RECENT_WEATHER_OPTIONS = [
+  { key: 'light_rain_yesterday', icon: '🌦️', label: 'Light Rain Yesterday', desc: 'Slight water clarity drop, small pressure changes. Fish are returning to normal but still slightly off.' },
+  { key: 'heavy_rain_24h', icon: '⛈️', label: 'Heavy Rain in Last 24hrs', desc: 'Runoff has muddied the water. Fish pushed into flooded shallow areas. Big change in behavior.' },
+  { key: 'rain_2_3_days', icon: '🌧️', label: 'Rained 2–3 Days Ago', desc: 'Water clarity recovering. Fish settling back to normal. A transitional day.' },
+  { key: 'temp_drop', icon: '🌡️', label: 'Big Temperature Drop Recently', desc: 'Cold front aftermath. Fish went deep, stopped feeding aggressively. Finesse only.' },
+  { key: 'warm_streak', icon: '☀️', label: 'Warm Streak (3+ Sunny Days)', desc: 'Water has warmed up faster than normal. Spawn may be further along. Fish are shallower.' },
+  { key: 'no_rain_week', icon: '🏜️', label: 'No Rain in a Week+', desc: 'Water is clear and settled. Fish have returned to predictable structure. Go finesse.' },
+];
+
+const MONTH = new Date().getMonth();
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const currentMonth = MONTH_NAMES[MONTH];
+
+function getMonthBanner() {
+  if (MONTH >= 3 && MONTH <= 4) return 'Spawn season is on! Bass and crappie are moving shallow. This is one of the best times to fish the STL area.';
+  if (MONTH === 5) return 'Post-spawn bass are hungry and feeding again. Great topwater month.';
+  if (MONTH >= 6 && MONTH <= 8) return 'Summer patterns: early morning and evening are your best windows. Fish deep during midday heat.';
+  if (MONTH >= 9 && MONTH <= 10) return 'Fall feed is on! Bass and crappie are aggressively feeding before winter. Some of the best fishing of the year.';
+  if (MONTH >= 11 || MONTH <= 1) return 'Slow and deep — winter fishing means slow presentations in the deepest water. Fish are lethargic but catchable.';
+  return 'Good fishing conditions in the STL area. Check conditions and pick your spot.';
+}
+
+export default function App() {
+  const [view, setView] = useState<AppView>('welcome');
+  const [screen, setScreen] = useState(0);
+  const [state, setState] = useState<WizardState>({
+    loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null,
+    water: null, temp: null, wind: null, pressure: null, fish: null, recentWeather: [],
+  });
+  const [missingMsg, setMissingMsg] = useState('');
+  const [activeRegion, setActiveRegion] = useState('fenton');
+  const [waterBodies, setWaterBodies] = useState<WaterBodyRow[]>([]);
+  const [customLakes, setCustomLakes] = useState<CustomLakeRow[]>([]);
+  const [adminLakes, setAdminLakes] = useState<AdminLakeRow[]>([]);
+  const [nearbyWater, setNearbyWater] = useState<NearbyWaterBody[]>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState('');
+  const [zipCode, setZipCode] = useState('');
+  const [zipLoading, setZipLoading] = useState(false);
+  const [zipError, setZipError] = useState('');
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherStatus, setWeatherStatus] = useState('');
+  const [weatherLoaded, setWeatherLoaded] = useState('');
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [adminPw, setAdminPw] = useState('');
+  const [adminMsg, setAdminMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [newLake, setNewLake] = useState({ name: '', location: '', type: '', notes: '' });
+  const [adminForm, setAdminForm] = useState({ name: '', location: '', region: '', type: '', species: '', spot1: '', spot2: '', spot3: '', regs: '', notes: '' });
+  const [tacklebox, setTacklebox] = useState<{ lures: string[]; colors: string[]; walmart: string[] }>(() => {
+    try { const s = localStorage.getItem('novacast_tacklebox'); return s ? JSON.parse(s) : { lures: [], colors: [], walmart: [] }; } catch { return { lures: [], colors: [], walmart: [] }; }
+  });
+  const [tooltipOpen, setTooltipOpen] = useState<string | null>(null);
+  const [showReference, setShowReference] = useState(false);
+
+  useEffect(() => {
+    loadWaterBodies(); loadCustomLakes(); loadAdminLakes();
+    if (window.location.hash === '#admin') setShowAdmin(true);
+    const handler = () => { if (window.location.hash === '#admin') setShowAdmin(true); };
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  useEffect(() => { localStorage.setItem('novacast_tacklebox', JSON.stringify(tacklebox)); }, [tacklebox]);
+
+  const toggleTacklebox = (category: 'lures' | 'colors' | 'walmart', item: string) => {
+    setTacklebox(prev => {
+      const list = prev[category];
+      return { ...prev, [category]: list.includes(item) ? list.filter(i => i !== item) : [...list, item] };
+    });
+  };
+
+  const loadWaterBodies = async () => { const { data } = await supabase.from('water_bodies').select('*').order('name'); if (data) setWaterBodies(data as WaterBodyRow[]); };
+  const loadCustomLakes = async () => { const { data } = await supabase.from('custom_lakes').select('*').order('created_at', { ascending: false }); if (data) setCustomLakes(data as CustomLakeRow[]); };
+  const loadAdminLakes = async () => { const { data } = await supabase.from('admin_lakes').select('*').order('created_at', { ascending: false }); if (data) setAdminLakes(data as AdminLakeRow[]); };
+
+  const wizardGoto = (n: number) => { setScreen(n); setMissingMsg(''); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const wizardBack = () => { if (screen > 0) wizardGoto(screen - 1); };
+
+  const wizardNext = (fromScreen: number, skip = false) => {
+    if (fromScreen === 0 && !state.loc) { setMissingMsg('Please select a location first.'); return; }
+    if (fromScreen === 1 && !state.time) { setMissingMsg('Please select a time of day.'); return; }
+    if (fromScreen === 2) {
+      if (!state.sky && !state.water && !state.temp && !state.wind && !state.pressure) {
+        // All skipped - use general best
+      } else {
+        const missing = [];
+        if (!state.sky) missing.push('sky');
+        if (!state.temp) missing.push('air temp');
+        if (!state.wind) missing.push('wind');
+        if (missing.length > 0) { setMissingMsg('Still need: ' + missing.join(', ') + ' (or skip all)'); return; }
+      }
+    }
+    if (fromScreen === 3 && skip) { setState(s => ({ ...s, recentWeather: [] })); }
+    if (fromScreen === 4) {
+      if (!state.fish) { setMissingMsg('Please select what you\'re targeting.'); return; }
+      setView('result'); window.scrollTo({ top: 0, behavior: 'smooth' }); return;
+    }
+    wizardGoto(fromScreen + 1);
+  };
+
+  const selectLoc = (key: string, name: string, lat?: number | null, lon?: number | null) => {
+    setState(s => ({ ...s, loc: key, locName: name, locLat: lat ?? null, locLon: lon ?? null }));
+  };
+
+  const selectPill = (key: keyof WizardState, val: string) => { setState(s => ({ ...s, [key]: val })); };
+  const toggleRW = (key: string) => { setState(s => ({ ...s, recentWeather: s.recentWeather.includes(key) ? s.recentWeather.filter(k => k !== key) : [...s.recentWeather, key] })); };
+
+  const resetAll = () => {
+    setState({ loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null, water: null, temp: null, wind: null, pressure: null, fish: null, recentWeather: [] });
+    setView('welcome'); setScreen(0); setMissingMsg('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const startWithGPS = useCallback(() => {
+    if (!navigator.geolocation) { setNearbyError('Location not available on this device.'); return; }
+    setNearbyLoading(true); setNearbyError(''); setNearbyWater([]);
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude, longitude } = pos.coords;
+      try {
+        const query = `[out:json][timeout:25];(way["natural"="water"](around:30000,${latitude},${longitude});way["waterway"="riverbank"](around:30000,${latitude},${longitude});way["water"~"lake|pond|reservoir"](around:30000,${latitude},${longitude});relation["natural"="water"](around:30000,${latitude},${longitude}););out body;>;out skel qt;`;
+        const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: `data=${encodeURIComponent(query)}` });
+        const data = await res.json();
+        const waterBodiesList: { name: string; lat: number; lon: number; type: string }[] = [];
+        const nodes: Record<number, { lat: number; lon: number }> = {};
+        data.elements.forEach((el: { type: string; id: number; lat?: number; lon?: number }) => { if (el.type === 'node' && el.lat && el.lon) nodes[el.id] = { lat: el.lat, lon: el.lon }; });
+        data.elements.forEach((el: { type: string; id: number; tags?: Record<string, string>; nodes?: number[] }) => {
+          if (el.type === 'way' && el.tags && el.nodes && el.nodes.length > 0) {
+            const name = el.tags.name || el.tags['name:en']; if (!name) return;
+            const waterType = el.tags.water || el.tags.natural || el.tags.waterway || 'water';
+            const firstNode = nodes[el.nodes[0]];
+            if (firstNode) waterBodiesList.push({ name, lat: firstNode.lat, lon: firstNode.lon, type: waterType });
+          }
+        });
+        const toRad = (d: number) => d * Math.PI / 180;
+        const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => { const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2; return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); };
+        const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDist(latitude, longitude, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
+        setNearbyWater(withDist);
+      } catch { setNearbyError('Couldn\'t fetch nearby water bodies. Try again.'); }
+      setNearbyLoading(false);
+      setView('wizard'); setScreen(0);
+    }, () => { setNearbyError('Location permission denied.'); setNearbyLoading(false); setView('wizard'); setScreen(0); });
+  }, []);
+
+  const searchByZip = useCallback(async () => {
+    if (!zipCode || zipCode.length < 5) { setZipError('Enter a valid zip code.'); return; }
+    setZipLoading(true); setZipError(''); setNearbyWater([]);
+    try {
+      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${zipCode}+USA&limit=1`);
+      const geoData = await geoRes.json();
+      if (!geoData.length) { setZipError('Couldn\'t find that location. Try another zip code.'); setZipLoading(false); return; }
+      const { lat, lon } = geoData[0];
+      const query = `[out:json][timeout:25];(way["natural"="water"](around:30000,${lat},${lon});way["waterway"="riverbank"](around:30000,${lat},${lon});way["water"~"lake|pond|reservoir"](around:30000,${lat},${lon});relation["natural"="water"](around:30000,${lat},${lon}););out body;>;out skel qt;`;
+      const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: `data=${encodeURIComponent(query)}` });
+      const data = await res.json();
+      const waterBodiesList: { name: string; lat: number; lon: number; type: string }[] = [];
+      const nodes: Record<number, { lat: number; lon: number }> = {};
+      data.elements.forEach((el: { type: string; id: number; lat?: number; lon?: number }) => { if (el.type === 'node' && el.lat && el.lon) nodes[el.id] = { lat: el.lat, lon: el.lon }; });
+      data.elements.forEach((el: { type: string; id: number; tags?: Record<string, string>; nodes?: number[] }) => {
+        if (el.type === 'way' && el.tags && el.nodes && el.nodes.length > 0) {
+          const name = el.tags.name || el.tags['name:en']; if (!name) return;
+          const waterType = el.tags.water || el.tags.natural || el.tags.waterway || 'water';
+          const firstNode = nodes[el.nodes[0]];
+          if (firstNode) waterBodiesList.push({ name, lat: firstNode.lat, lon: firstNode.lon, type: waterType });
+        }
+      });
+      const toRad = (d: number) => d * Math.PI / 180;
+      const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => { const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2; return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); };
+      const latNum = parseFloat(lat); const lonNum = parseFloat(lon);
+      const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDist(latNum, lonNum, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
+      setNearbyWater(withDist);
+      setView('wizard'); setScreen(0);
+    } catch { setZipError('Search failed. Try again.'); }
+    setZipLoading(false);
+  }, [zipCode]);
+
+  const loadWeather = useCallback(() => {
+    if (!navigator.geolocation) { setWeatherStatus('Location not available.'); return; }
+    setWeatherLoading(true); setWeatherStatus('Getting your location...'); setWeatherLoaded('');
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      setWeatherStatus('Fetching weather...');
+      try {
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&appid=9e751a40a370416832496e123e1098cc&units=imperial`);
+        const data = await res.json();
+        if (data.cod !== 200) throw new Error(data.message);
+        const tempF = Math.round(data.main.temp); const windMph = Math.round(data.wind.speed);
+        const cloudPct = data.clouds.all; const weatherId = data.weather[0].id; const pressureHpa = data.main.pressure;
+        let sky: string, temp: string, wind: string, pressure: string;
+        if (weatherId >= 200 && weatherId < 600) sky = 'rainy'; else if (cloudPct >= 80) sky = 'overcast'; else if (cloudPct >= 30) sky = 'partly'; else sky = 'sunny';
+        if (tempF < 45) temp = 'cold'; else if (tempF < 60) temp = 'cool'; else temp = 'warm';
+        if (windMph <= 5) wind = 'calm'; else if (windMph <= 14) wind = 'light'; else wind = 'strong';
+        if (pressureHpa < 1009) pressure = 'steady_low'; else if (pressureHpa < 1013) pressure = 'falling'; else if (pressureHpa < 1020) pressure = 'steady_high'; else pressure = 'steady_high';
+        setState(s => ({ ...s, sky, temp, wind, pressure }));
+        const skyLabel: Record<string, string> = { sunny: 'Sunny', partly: 'Partly Cloudy', overcast: 'Overcast', rainy: 'Rainy' };
+        const windLabel: Record<string, string> = { calm: 'Calm', light: 'Light Breeze', strong: 'Windy' };
+        const pressureLabel: Record<string, string> = { falling: 'Falling', steady_low: 'Low', rising: 'Rising', steady_high: 'High/Steady' };
+        setWeatherLoaded(`${data.name} — ${tempF}°F · ${skyLabel[sky]} · ${windLabel[wind]} · Pressure: ${pressureLabel[pressure]}`);
+        setWeatherStatus('');
+      } catch { setWeatherStatus('Couldn\'t load weather.'); }
+      setWeatherLoading(false);
+    }, () => { setWeatherStatus('Location permission denied.'); setWeatherLoading(false); });
+  }, []);
+
+  const addCustomLake = async () => {
+    if (!newLake.name || !newLake.type) return;
+    await supabase.from('custom_lakes').insert({ name: newLake.name, location: newLake.location, type: newLake.type, notes: newLake.notes });
+    setNewLake({ name: '', location: '', type: '', notes: '' }); loadCustomLakes();
+  };
+  const deleteCustomLake = async (id: string) => { await supabase.from('custom_lakes').delete().eq('id', id); if (state.loc === id) setState(s => ({ ...s, loc: null, locName: null })); loadCustomLakes(); };
+  const adminLogin = () => { if (adminPw === 'castmaster2025') { setAdminAuthed(true); setAdminMsg(null); } else { setAdminPw(''); setAdminMsg({ text: 'Wrong password', type: 'error' }); } };
+  const adminSaveLake = async () => {
+    if (!adminForm.name || !adminForm.location || !adminForm.region || !adminForm.type) { setAdminMsg({ text: 'Name, location, region, and type are required.', type: 'error' }); return; }
+    const speciesArr = adminForm.species ? adminForm.species.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const spots: Spot[] = [];
+    const parseSpot = (s: string) => { const parts = s.split('—'); return { name: parts[0].trim(), detail: parts.length > 1 ? parts.slice(1).join('—').trim() : s, always: true as const }; };
+    if (adminForm.spot1) spots.push(parseSpot(adminForm.spot1)); if (adminForm.spot2) spots.push(parseSpot(adminForm.spot2)); if (adminForm.spot3) spots.push(parseSpot(adminForm.spot3));
+    await supabase.from('admin_lakes').insert({ name: adminForm.name, location: adminForm.location, region: adminForm.region, type: adminForm.type, species: speciesArr, spots, special_regs: adminForm.regs, notes: adminForm.notes });
+    setAdminForm({ name: '', location: '', region: '', type: '', species: '', spot1: '', spot2: '', spot3: '', regs: '', notes: '' });
+    setAdminMsg({ text: 'Lake saved!', type: 'success' }); loadAdminLakes();
+  };
+  const deleteAdminLake = async (id: string) => { await supabase.from('admin_lakes').delete().eq('id', id); loadAdminLakes(); };
+
+  const getLocSpots = (): Spot[] => {
+    const dbBody = waterBodies.find(w => w.key === state.loc); if (dbBody?.spots && dbBody.spots.length > 0) return dbBody.spots;
+    const adminBody = adminLakes.find(l => l.id === state.loc); if (adminBody?.spots && adminBody.spots.length > 0) return adminBody.spots;
+    const custom = customLakes.find(l => l.id === state.loc); if (custom) return getCustomSpots(custom.type, custom.notes);
+    return DEFAULT_SPOTS;
+  };
+  const getLocSpecialRegs = (): string | null => {
+    const dbBody = waterBodies.find(w => w.key === state.loc); if (dbBody?.special_regs) return dbBody.special_regs;
+    const adminBody = adminLakes.find(l => l.id === state.loc); if (adminBody?.special_regs) return adminBody.special_regs;
+    return null;
+  };
+  const getLocCoords = (): { lat: number | null; lon: number | null } => {
+    if (state.locLat && state.locLon) return { lat: state.locLat, lon: state.locLon };
+    const dbBody = waterBodies.find(w => w.key === state.loc);
+    if (dbBody?.latitude && dbBody?.longitude) return { lat: dbBody.latitude, lon: dbBody.longitude };
+    return { lat: null, lon: null };
+  };
+
+  const tagColorClass = (color: string) => {
+    switch (color) { case 'green': return 'bg-[rgba(0,229,199,0.15)] text-[#00e5c7]'; case 'orange': return 'bg-[rgba(192,200,216,0.15)] text-[#c0c8d8]'; case 'red': return 'bg-[rgba(224,92,92,0.15)] text-[#f09090]'; default: return 'bg-[rgba(26,107,138,0.3)] text-[#5cc8e0]'; }
+  };
+  const waterBodiesByRegion = (region: string) => waterBodies.filter(w => w.region === region);
+
+  const Tooltip = ({ term }: { term: string }) => {
+    const def = TOOLTIPS[term];
+    if (!def) return null;
+    return (
+      <span className="relative inline-flex ml-1">
+        <button onClick={e => { e.stopPropagation(); setTooltipOpen(tooltipOpen === term ? null : term); }} className="text-[#00e5c7] opacity-60 hover:opacity-100 transition-opacity"><Info className="w-3 h-3" /></button>
+        {tooltipOpen === term && (
+          <span className="absolute left-0 bottom-6 z-50 bg-[#152a4f] border border-[#1e3a5f] rounded-lg px-3 py-2 text-xs text-[#e8f0f8] w-56 shadow-lg" onClick={e => e.stopPropagation()}>
+            <strong className="text-[#00e5c7]">{term}</strong><br />{def}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  const renderLocCard = (key: string, name: string, location: string, species: string[], tags: { label: string; color: string }[], lat?: number | null, lon?: number | null, extra?: React.ReactNode) => (
+    <div key={key} onClick={() => selectLoc(key, name, lat, lon)} className={`rounded-xl p-3 cursor-pointer transition-all border-[1.5px] ${state.loc === key ? 'border-[#00e5c7] bg-[rgba(0,229,199,0.06)]' : 'border-[#1e3a5f] bg-[#152a4f] hover:border-[#1a6b8a]'}`}>
+      {extra}
+      <div className="font-semibold text-sm mb-0.5">{name}</div>
+      <div className="text-[11px] text-[#7a8ea6] mb-1.5 flex items-center gap-1"><MapPin className="w-3 h-3" />{location}</div>
+      <div className="flex flex-wrap gap-1">
+        {species.map(s => (<span key={s} className="text-[10px] px-2 py-0.5 rounded-full bg-[rgba(0,229,199,0.15)] text-[#00e5c7] font-medium">{s}</span>))}
+        {tags.map((t, i) => (<span key={i} className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${tagColorClass(t.color)}`}>{t.label}</span>))}
+      </div>
+    </div>
+  );
+
+  const renderPill = (groupKey: keyof WizardState, val: string, label: string, isWarn = false) => (
+    <button onClick={() => selectPill(groupKey, val)} className={`px-3.5 py-2 rounded-full border-[1.5px] text-sm font-medium cursor-pointer transition-all ${state[groupKey] === val ? isWarn ? 'bg-[#c0c8d8] border-[#c0c8d8] text-[#0a1628] font-semibold' : 'bg-[#00e5c7] border-[#00e5c7] text-[#0a1628] font-semibold' : 'border-[#1e3a5f] bg-[#152a4f] text-[#7a8ea6] hover:border-[#00e5c7] hover:text-[#00e5c7]'}`}>
+      {label}
+    </button>
+  );
+
+  const renderWizardNav = () => (
+    <div className="flex items-center justify-between mb-4 min-h-8">
+      <button onClick={wizardBack} className={`bg-transparent border-none text-[#7a8ea6] text-sm cursor-pointer hover:text-[#e8f0f8] ${screen > 0 ? 'visible' : 'invisible'}`}>← Back</button>
+      <div className="flex gap-1.5 items-center">{[0, 1, 2, 3, 4].map(i => (<div key={i} className={`h-2 rounded-full transition-all ${i === screen ? 'bg-[#00e5c7] w-5' : i < screen ? 'bg-[#00e5c7] opacity-40 w-2' : 'bg-[#1e3a5f] w-2'}`} />))}</div>
+      <div className="w-12" />
+    </div>
+  );
+
+  // ── WELCOME SCREEN ──────────────────────────────────────────────────
+  const renderWelcome = () => (
+    <div className="animate-fade-up text-center">
+      <div className="font-display text-[48px] tracking-[4px] text-[#00e5c7] leading-none mt-8">Novacast</div>
+      <div className="text-sm text-[#c0c8d8] tracking-[3px] uppercase mt-2 mb-1">Your Fishing Mentor</div>
+      <div className="text-xs text-[#7a8ea6] mb-8">STL Area — {currentMonth} Edition</div>
+
+      <div className="bg-[rgba(0,229,199,0.08)] border border-[rgba(0,229,199,0.25)] rounded-xl px-4 py-3 text-sm text-[#00e5c7] mb-8 leading-relaxed text-left">
+        {getMonthBanner()}
+      </div>
+
+      <div className="text-xs uppercase tracking-widest text-[#7a8ea6] mb-3 font-semibold">How do you want to find water?</div>
+
+      <button onClick={startWithGPS} disabled={nearbyLoading} className="w-full py-4 bg-[rgba(0,229,199,0.12)] border-[1.5px] border-[#00e5c7] rounded-xl text-[#00e5c7] text-sm font-semibold cursor-pointer mb-3 flex items-center justify-center gap-2.5 hover:bg-[rgba(0,229,199,0.2)] disabled:opacity-50 transition-all animate-pulse-glow">
+        <Navigation className="w-5 h-5" /> {nearbyLoading ? 'Searching...' : 'Find Near Me'}
+      </button>
+      {nearbyError && <div className="text-[#e05c5c] text-xs mb-3">{nearbyError}</div>}
+
+      <div className="flex gap-2 mb-3">
+        <input type="text" value={zipCode} onChange={e => setZipCode(e.target.value)} placeholder="Zip code" maxLength={10} className="flex-1 bg-[#152a4f] border border-[#1e3a5f] rounded-xl text-[#e8f0f8] text-sm px-4 py-3.5 outline-none focus:border-[#00e5c7]" onKeyDown={e => e.key === 'Enter' && searchByZip()} />
+        <button onClick={searchByZip} disabled={zipLoading} className="px-5 py-3.5 bg-[#152a4f] border border-[#1e3a5f] rounded-xl text-[#00e5c7] cursor-pointer hover:bg-[rgba(0,229,199,0.1)] disabled:opacity-50 transition-all"><Search className="w-5 h-5" /></button>
+      </div>
+      {zipError && <div className="text-[#e05c5c] text-xs mb-3">{zipError}</div>}
+
+      <div className="text-xs text-[#7a8ea6] mb-3">or</div>
+
+      <button onClick={() => { setView('wizard'); setScreen(0); }} className="w-full py-4 bg-[#152a4f] border-[1.5px] border-[#1e3a5f] rounded-xl text-[#c0c8d8] text-sm font-semibold cursor-pointer flex items-center justify-center gap-2.5 hover:border-[#c0c8d8] hover:text-white transition-all">
+        <MapPin className="w-5 h-5" /> Browse St. Louis Favorites
+      </button>
+
+      <div className="mt-8 flex justify-center gap-4">
+        <button onClick={() => setView('tacklebox')} className="text-[#7a8ea6] hover:text-[#00e5c7] transition-colors flex items-center gap-1.5 text-sm"><Heart className="w-4 h-4" /> My Tacklebox</button>
+        <button onClick={() => setShowReference(true)} className="text-[#7a8ea6] hover:text-[#00e5c7] transition-colors flex items-center gap-1.5 text-sm"><BookOpen className="w-4 h-4" /> Reference</button>
+      </div>
+    </div>
+  );
+
+  // ── WIZARD SCREENS ──────────────────────────────────────────────────
+  const renderScreen0 = () => (
+    <div className="animate-fade-up">
+      <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-5 mb-3.5">
+        <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-2">Step 1 of 5</div>
+        <div className="font-display text-[22px] tracking-wide mb-3.5">Pick Your Water</div>
+
+        {nearbyWater.length > 0 && (
+          <div className="mb-3.5">
+            <div className="text-xs uppercase tracking-widest text-[#7a8ea6] mb-2 font-semibold">Nearby Water Bodies</div>
+            {nearbyWater.map((w, i) => (
+              <div key={i} onClick={() => selectLoc(`nearby_${i}`, w.name, w.lat, w.lon)} className={`rounded-xl p-3 cursor-pointer transition-all border-[1.5px] mb-2 ${state.loc === `nearby_${i}` ? 'border-[#00e5c7] bg-[rgba(0,229,199,0.06)]' : 'border-[#1e3a5f] bg-[#152a4f] hover:border-[#1a6b8a]'}`}>
+                <div className="text-[11px] text-[#c0c8d8] font-semibold mb-0.5">{w.distance.toFixed(1)} miles away</div>
+                <div className="font-semibold text-sm mb-0.5">{w.name}</div>
+                <div className="text-[11px] text-[#7a8ea6]">{w.type}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-1.5 mb-3.5">
+          {Object.entries(REGION_LABELS).filter(([k]) => k !== 'springfield' && k !== 'stockton' && k !== 'custom').map(([key, label]) => (
+            <button key={key} onClick={() => setActiveRegion(key)} className={`px-3 py-1.5 rounded-full border-[1.5px] text-xs font-semibold cursor-pointer transition-all ${activeRegion === key ? 'bg-[#00e5c7] border-[#00e5c7] text-[#0a1628]' : 'border-[#1e3a5f] bg-[#152a4f] text-[#7a8ea6] hover:border-[#00e5c7] hover:text-[#00e5c7]'}`}>{label}</button>
+          ))}
+          <button onClick={() => setActiveRegion('mylakes')} className={`px-3 py-1.5 rounded-full border-[1.5px] text-xs font-semibold cursor-pointer transition-all ${activeRegion === 'mylakes' ? 'bg-[#c0c8d8] border-[#c0c8d8] text-[#0a1628]' : 'border-[#1e3a5f] bg-[#152a4f] text-[#7a8ea6] hover:border-[#c0c8d8] hover:text-[#c0c8d8]'}`}>My Lakes</button>
+        </div>
+
+        {activeRegion !== 'mylakes' && (
+          <div className="flex flex-col gap-2">
+            {waterBodiesByRegion(activeRegion).map(w => renderLocCard(w.key, w.name, w.location, w.species, w.tags || [], w.latitude, w.longitude))}
+            {adminLakes.filter(l => l.region === activeRegion).map(l => renderLocCard(l.id, l.name, l.location, l.species, []))}
+            {waterBodiesByRegion(activeRegion).length === 0 && adminLakes.filter(l => l.region === activeRegion).length === 0 && (<div className="text-[#7a8ea6] text-sm text-center py-5">No water bodies in this region yet.</div>)}
+          </div>
+        )}
+
+        {activeRegion === 'mylakes' && (
+          <div className="flex flex-col gap-2">
+            <div className="bg-[#152a4f] border-[1.5px] border-dashed border-[#1e3a5f] rounded-xl p-3.5 mb-2">
+              <div className="text-[11px] uppercase tracking-widest text-[#00e5c7] font-semibold mb-2.5">Add a New Lake or Pond</div>
+              <input type="text" placeholder="Name" value={newLake.name} onChange={e => setNewLake(s => ({ ...s, name: e.target.value }))} className="w-full bg-[#0f1f3d] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 mb-2 outline-none focus:border-[#00e5c7]" maxLength={60} />
+              <input type="text" placeholder="Location (optional)" value={newLake.location} onChange={e => setNewLake(s => ({ ...s, location: e.target.value }))} className="w-full bg-[#0f1f3d] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 mb-2 outline-none focus:border-[#00e5c7]" maxLength={80} />
+              <select value={newLake.type} onChange={e => setNewLake(s => ({ ...s, type: e.target.value }))} className="w-full bg-[#0f1f3d] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 mb-2 outline-none focus:border-[#00e5c7]">
+                <option value="" disabled>Water type...</option><option value="pond">Small Pond</option><option value="lake">Lake</option><option value="river">River / Creek</option><option value="reservoir">Reservoir</option>
+              </select>
+              <textarea placeholder="Notes" value={newLake.notes} onChange={e => setNewLake(s => ({ ...s, notes: e.target.value }))} className="w-full bg-[#0f1f3d] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 mb-2 outline-none focus:border-[#00e5c7] resize-none h-14" />
+              <button onClick={addCustomLake} className="w-full py-2.5 bg-[#00e5c7] text-[#0a1628] font-display text-base tracking-wider rounded-lg cursor-pointer border-none">SAVE THIS LAKE</button>
+            </div>
+            {customLakes.length === 0 && <div className="text-[#7a8ea6] text-sm text-center py-5">No saved lakes yet.</div>}
+            {customLakes.map(l => (
+              <div key={l.id} className="relative">
+                {renderLocCard(l.id, l.name, l.location || 'No address', [], [{ label: TYPE_LABELS[l.type] || l.type, color: 'orange' }, ...(l.notes ? [{ label: l.notes.substring(0, 40) + (l.notes.length > 40 ? '...' : ''), color: 'blue' }] : []), { label: 'Custom Spot', color: 'green' }])}
+                <button onClick={e => { e.stopPropagation(); deleteCustomLake(l.id); }} className="absolute top-2.5 right-2.5 bg-[rgba(224,92,92,0.2)] border-none text-[#f09090] text-[11px] px-2 py-0.5 rounded-full cursor-pointer">Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {missingMsg && <div className="text-[#e05c5c] text-sm text-center mt-2.5 min-h-5">{missingMsg}</div>}
+      <button onClick={() => wizardNext(0)} className="w-full py-4 bg-[#00e5c7] text-[#0a1628] font-display text-xl tracking-[2px] rounded-xl cursor-pointer border-none hover:brightness-110 hover:-translate-y-px transition-all mt-1.5">NEXT: Time of Day →</button>
+    </div>
+  );
+
+  const renderScreen1 = () => (
+    <div className="animate-fade-up">
+      <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-5 mb-3.5">
+        <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-2">Step 2 of 5</div>
+        <div className="font-display text-[22px] tracking-wide mb-3.5">What Time Are You Going?</div>
+        <div className="flex flex-wrap gap-2">
+          {renderPill('time', 'night', '🌙 Night (10pm–5am)')}
+          {renderPill('time', 'dawn', '🌅 Dawn (5–8am)')}
+          {renderPill('time', 'morning', '☀️ Morning (8–11am)')}
+          {renderPill('time', 'midday', '🌞 Midday (11am–3pm)')}
+          {renderPill('time', 'afternoon', '🌤️ Afternoon (3–6pm)')}
+          {renderPill('time', 'evening', '🌇 Evening (6–10pm)')}
+        </div>
+      </div>
+      {missingMsg && <div className="text-[#e05c5c] text-sm text-center mt-2.5 min-h-5">{missingMsg}</div>}
+      <button onClick={() => wizardNext(1)} className="w-full py-4 bg-[#00e5c7] text-[#0a1628] font-display text-xl tracking-[2px] rounded-xl cursor-pointer border-none hover:brightness-110 transition-all mt-1.5">NEXT: Conditions →</button>
+    </div>
+  );
+
+  const renderScreen2 = () => (
+    <div className="animate-fade-up">
+      <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-5 mb-3.5">
+        <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-2">Step 3 of 5</div>
+        <div className="font-display text-[22px] tracking-wide mb-3.5">What Are the Conditions?</div>
+
+        <button onClick={loadWeather} disabled={weatherLoading} className="w-full py-2.5 bg-[rgba(0,229,199,0.1)] border-[1.5px] border-[#00e5c7] rounded-xl text-[#00e5c7] text-sm font-semibold cursor-pointer mb-3.5 hover:bg-[rgba(0,229,199,0.2)] disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+          {weatherLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
+          {weatherLoading ? 'Getting Weather...' : 'Auto-Fill from Current Weather'}
+        </button>
+        {weatherStatus && <div className="text-xs text-[#00e5c7] text-center mb-2.5">{weatherStatus}</div>}
+        {weatherLoaded && <div className="bg-[rgba(0,229,199,0.08)] border border-[rgba(0,229,199,0.2)] rounded-lg px-3 py-2 text-xs text-[#00e5c7] mb-2.5">{weatherLoaded}<br /><span className="text-[#7a8ea6]">Sky, temp, wind, and pressure auto-filled. Set water color manually.</span></div>}
+
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-widest text-[#7a8ea6] mb-2 font-semibold flex items-center gap-1.5"><Cloud className="w-3.5 h-3.5" /> Sky</div>
+          <div className="flex flex-wrap gap-2">{renderPill('sky', 'sunny', '☀️ Sunny')}{renderPill('sky', 'partly', '⛅ Partly Cloudy')}{renderPill('sky', 'overcast', '☁️ Overcast')}{renderPill('sky', 'rainy', '🌧️ Rainy')}</div>
+        </div>
+
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-widest text-[#7a8ea6] mb-2 font-semibold flex items-center gap-1.5"><Droplets className="w-3.5 h-3.5" /> Water Color</div>
+          <div className="flex flex-wrap gap-2">{renderPill('water', 'clear', '🔵 Clear')}{renderPill('water', 'stained', '🟤 Stained')}{renderPill('water', 'murky', '⚫ Murky')}{renderPill('water', 'green', '🟢 Green / Algae')}</div>
+        </div>
+
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-widest text-[#7a8ea6] mb-2 font-semibold flex items-center gap-1.5"><Thermometer className="w-3.5 h-3.5" /> Air Temp</div>
+          <div className="flex flex-wrap gap-2">{renderPill('temp', 'cold', '🧊 Cold (<45°F)')}{renderPill('temp', 'cool', '🌊 Cool (45–60°F)')}{renderPill('temp', 'warm', '🔆 Warm (60°F+)')}</div>
+        </div>
+
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-widest text-[#7a8ea6] mb-2 font-semibold flex items-center gap-1.5"><Wind className="w-3.5 h-3.5" /> Wind</div>
+          <div className="flex flex-wrap gap-2">{renderPill('wind', 'calm', '😌 Calm')}{renderPill('wind', 'light', '🍃 Light Breeze')}{renderPill('wind', 'strong', '💨 Windy')}</div>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-widest text-[#7a8ea6] mb-2 font-semibold flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M2 12h20M7 7l10 10M17 7L7 17"/></svg>
+            Barometric Pressure
+          </div>
+          <div className="text-[11px] text-[#7a8ea6] mb-1.5">Affects fish activity more than most anglers realize. Auto-filled by weather.</div>
+          <div className="flex flex-wrap gap-2">{renderPill('pressure', 'falling', '📉 Falling')}{renderPill('pressure', 'steady_low', '🫧 Low')}{renderPill('pressure', 'rising', '📈 Rising')}{renderPill('pressure', 'steady_high', '🔵 High')}</div>
+        </div>
+
+        <div onClick={() => { setState(s => ({ ...s, sky: null, water: null, temp: null, wind: null, pressure: null })); wizardNext(2); }} className="block text-center text-[#7a8ea6] text-sm py-3 cursor-pointer underline underline-offset-2 hover:text-[#e8f0f8] mt-2">Skip — Not Sure →</div>
+      </div>
+      {missingMsg && <div className="text-[#e05c5c] text-sm text-center mt-2.5 min-h-5">{missingMsg}</div>}
+      <button onClick={() => wizardNext(2)} className="w-full py-4 bg-[#00e5c7] text-[#0a1628] font-display text-xl tracking-[2px] rounded-xl cursor-pointer border-none hover:brightness-110 transition-all mt-1.5">NEXT: Recent Weather →</button>
+    </div>
+  );
+
+  const renderScreen3 = () => (
+    <div className="animate-fade-up">
+      <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-5 mb-3.5">
+        <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-2">Step 4 of 5 — Optional</div>
+        <div className="font-display text-[22px] tracking-wide mb-3.5">Did Anything Happen Recently?</div>
+        <div className="bg-[rgba(26,107,138,0.15)] border border-[#1a6b8a] rounded-xl px-3.5 py-2.5 text-xs text-[#5cc8e0] mb-3 leading-relaxed">What happened in the last 1–3 days can change where fish are and what they'll bite.</div>
+        <div className="flex flex-col gap-2">
+          {RECENT_WEATHER_OPTIONS.map(opt => (
+            <div key={opt.key} onClick={() => toggleRW(opt.key)} className={`flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-all border-[1.5px] ${state.recentWeather.includes(opt.key) ? 'border-[#c0c8d8] bg-[rgba(192,200,216,0.06)]' : 'border-[#1e3a5f] bg-[#152a4f] hover:border-[#1a6b8a]'}`}>
+              <div className="text-xl flex-shrink-0 mt-0.5">{opt.icon}</div>
+              <div><div className="font-semibold text-sm mb-0.5">{opt.label}</div><div className="text-xs text-[#7a8ea6] leading-relaxed">{opt.desc}</div></div>
+            </div>
+          ))}
+        </div>
+        <div onClick={() => wizardNext(3, true)} className="block text-center text-[#7a8ea6] text-sm py-3 cursor-pointer underline underline-offset-2 hover:text-[#e8f0f8]">Skip — nothing notable →</div>
+      </div>
+      <button onClick={() => wizardNext(3)} className="w-full py-4 bg-[#00e5c7] text-[#0a1628] font-display text-xl tracking-[2px] rounded-xl cursor-pointer border-none hover:brightness-110 transition-all mt-1.5">NEXT: Target Fish →</button>
+    </div>
+  );
+
+  const renderScreen4 = () => (
+    <div className="animate-fade-up">
+      <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-5 mb-3.5">
+        <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-2">Step 5 of 5</div>
+        <div className="font-display text-[22px] tracking-wide mb-3.5">What Are You Targeting?</div>
+        <div className="flex flex-wrap gap-2">
+          {renderPill('fish', 'bass', '🐟 Bass')}{renderPill('fish', 'crappie', '🐠 Crappie')}{renderPill('fish', 'catfish', '🐱 Catfish')}{renderPill('fish', 'bluegill', '🫐 Bluegill')}{renderPill('fish', 'smallmouth', '🏔️ Smallmouth')}{renderPill('fish', 'anything', '🤷 Whatever bites', true)}
+        </div>
+      </div>
+      {missingMsg && <div className="text-[#e05c5c] text-sm text-center mt-2.5 min-h-5">{missingMsg}</div>}
+      <button onClick={() => wizardNext(4)} className="w-full py-4 bg-[#00e5c7] text-[#0a1628] font-display text-xl tracking-[2px] rounded-xl cursor-pointer border-none hover:brightness-110 transition-all mt-1.5">GET MY GAME PLAN →</button>
+    </div>
+  );
+
+  // ── RESULT PANEL ────────────────────────────────────────────────────
+  const renderResult = () => {
+    const { loc, locName, time, sky, water, temp, wind, pressure, fish, recentWeather } = state;
+    const isSkipped = !sky && !water && !temp && !wind && !pressure;
+    const f = fish || 'anything';
+    const t = time || 'morning';
+    const s = sky || 'partly';
+    const w = water || 'stained';
+    const tp = temp || 'cool';
+    const wi = wind || 'light';
+
+    let lures: Lure[]; let colors: { colors: ColorRec[]; reason: string }; let walmart: WalmartItem[]; let proTip: string; let mv: { title: string; depthPct: number; moveText: string };
+
+    if (isSkipped) {
+      const general = getGeneralBestRecommendation(MONTH);
+      lures = general.lures; colors = general.colors; walmart = getWalmart(f, 'stained', t); proTip = general.tip;
+      mv = { title: 'General Best — Seasonal Recommendation', depthPct: 40, moveText: `You skipped conditions, so here's the ${currentMonth.toLowerCase()} best bet. ${general.tip}` };
+    } else {
+      mv = getFishMovement(t, s);
+      mv = applyRecentWeatherToDepth(mv, recentWeather);
+      if (pressure) { const baroImpact = getBarometricImpact(pressure); if (baroImpact) mv = { ...mv, depthPct: Math.max(5, Math.min(95, mv.depthPct + baroImpact.depthAdj)) }; }
+      lures = getLures(s, w, tp, f, t, pressure || undefined);
+      colors = getColors(s, w, t);
+      walmart = getWalmart(f, w, t);
+      proTip = getProTip(s, w, tp, wi, f, t, loc || '', pressure || undefined);
+    }
+
+    const rwImpacts = getRecentWeatherImpact(recentWeather);
+    const spots = getSpots(getLocSpots(), time || 'morning', sky || 'partly');
+    const regs = getLocSpecialRegs();
+    const coords = getLocCoords();
+
+    return (
+      <div className="animate-slide-in">
+        <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-5">
+          <div className="font-display text-[26px] tracking-[2px] text-[#00e5c7] mb-1">Game Plan: {locName || loc}</div>
+          {coords.lat && coords.lon && (
+            <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lon}`, '_blank')} className="flex items-center gap-1.5 text-xs text-[#5cc8e0] mb-3 hover:text-[#00e5c7] transition-colors cursor-pointer bg-transparent border-none">
+              <Navigation className="w-3.5 h-3.5" /> Navigate with Google Maps
+            </button>
+          )}
+
+          {regs && <div className="bg-[rgba(224,92,92,0.08)] border border-[rgba(224,92,92,0.3)] rounded-lg px-3 py-2 text-xs text-[#f09090] mb-3">{regs}</div>}
+
+          <div className="bg-gradient-to-br from-[rgba(26,107,138,0.2)] to-[rgba(10,22,40,0.8)] border border-[#1a6b8a] rounded-xl p-4 mb-3">
+            <div className="font-display text-lg tracking-wide text-[#5cc8e0] mb-2">{mv.title}</div>
+            <div className="bg-[rgba(255,255,255,0.05)] rounded-full h-2.5 my-2.5 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-[#00e5c7] to-[#1a6b8a] depth-bar-animate" style={{ width: `${mv.depthPct}%` }} /></div>
+            <div className="flex justify-between text-[10px] text-[#7a8ea6]"><span>Shallow (0–3ft)</span><span>Mid (4–8ft)</span><span>Deep (9ft+)</span></div>
+            <div className="text-[13px] leading-relaxed text-[#e8f0f8] mt-2">{mv.moveText}</div>
+          </div>
+
+          {pressure && getBarometricImpact(pressure) && (
+            <div className="bg-[rgba(26,107,138,0.12)] border border-[rgba(26,107,138,0.35)] rounded-xl p-4 mb-3">
+              <div className="text-[10px] uppercase tracking-[2px] text-[#5cc8e0] font-semibold mb-2.5">Barometric Pressure</div>
+              <div className="font-display text-base tracking-wide text-[#5cc8e0] mb-1.5">{getBarometricImpact(pressure)!.title}</div>
+              <div className="text-[13px] leading-relaxed text-[#e8f0f8]">{getBarometricImpact(pressure)!.text}</div>
+            </div>
+          )}
+
+          {rwImpacts && rwImpacts.length > 0 && (
+            <div className="bg-[#152a4f] border border-[#1e3a5f] rounded-xl p-4 mb-3">
+              <div className="text-[10px] uppercase tracking-[2px] text-[#7a8ea6] font-semibold mb-2.5">How Recent Weather Is Affecting Today</div>
+              {rwImpacts.map((impact, i) => <div key={i} className="text-[13px] leading-relaxed mb-2.5 last:mb-0" dangerouslySetInnerHTML={{ __html: impact }} />)}
+            </div>
+          )}
+
+          <div className="bg-[#152a4f] border border-[#1e3a5f] rounded-xl p-4 mb-3">
+            <div className="text-[10px] uppercase tracking-[2px] text-[#7a8ea6] font-semibold mb-2.5">Where to Set Up</div>
+            {spots.map((s, i) => (
+              <div key={i} className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-lg p-3 mb-2 last:mb-0">
+                <div className={`inline-block text-[10px] px-2 py-0.5 rounded-full mb-1.5 font-semibold ${i === 0 ? 'bg-[#00e5c7] text-[#0a1628]' : i === 1 ? 'bg-[rgba(192,200,216,0.2)] text-[#c0c8d8]' : 'bg-[rgba(255,255,255,0.08)] text-[#7a8ea6]'}`}>
+                  {i === 0 ? 'Best Right Now' : i === 1 ? 'Also Try' : 'Backup'}
+                </div>
+                <div className="font-semibold text-sm mb-1">{s.name}</div>
+                <div className="text-xs text-[#7a8ea6] leading-relaxed">{s.detail}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-[#152a4f] border border-[#1e3a5f] rounded-xl p-4 mb-3">
+            <div className="text-[10px] uppercase tracking-[2px] text-[#7a8ea6] font-semibold mb-2.5">Best Lures For These Conditions</div>
+            {lures.map((l, i) => (
+              <div key={i} className={`rounded-lg p-3 mb-2 last:mb-0 border ${i === 0 ? 'border-[#00e5c7] bg-[rgba(0,229,199,0.04)]' : 'border-[#1e3a5f] bg-[#0f1f3d]'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm">{l.name}</span>
+                    {l.isBold && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[rgba(192,200,216,0.15)] text-[#c0c8d8] font-semibold">BOLD</span>}
+                    <button onClick={() => toggleTacklebox('lures', l.name)} className={`transition-colors ${tacklebox.lures.includes(l.name) ? 'text-[#e05c5c]' : 'text-[#7a8ea6] hover:text-[#00e5c7]'}`}><Heart className="w-3.5 h-3.5" fill={tacklebox.lures.includes(l.name) ? 'currentColor' : 'none'} /></button>
+                  </div>
+                  <div className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${i === 0 ? 'bg-[#00e5c7] text-[#0a1628]' : 'bg-[rgba(192,200,216,0.2)] text-[#c0c8d8]'}`}>{i === 0 ? 'BEST PICK' : 'GOOD CHOICE'}</div>
+                </div>
+                <div className="text-xs text-[#7a8ea6] leading-relaxed mb-1.5">{l.reason}</div>
+                {l.talkingPoint && <div className="text-xs text-[#5cc8e0] leading-relaxed mb-1 border-l-2 border-[#1a6b8a] pl-2.5">Why: {l.talkingPoint}</div>}
+                {l.technique && <div className="text-xs text-[#c0c8d8] leading-relaxed border-l-2 border-[rgba(192,200,216,0.3)] pl-2.5">How: {l.technique}</div>}
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-[#152a4f] border border-[#1e3a5f] rounded-xl p-4 mb-3">
+            <div className="text-[10px] uppercase tracking-[2px] text-[#7a8ea6] font-semibold mb-2.5">Best Colors Today</div>
+            <div className="flex flex-wrap gap-2">
+              {colors.colors.map((c, i) => (
+                <div key={i} className="flex items-center gap-1.5 bg-[#0f1f3d] border border-[#1e3a5f] rounded-lg px-2.5 py-1.5 text-xs">
+                  <div className="w-3.5 h-3.5 rounded-full flex-shrink-0 border border-[rgba(255,255,255,0.15)]" style={{ background: c.hex }} />
+                  {c.name}
+                  {c.tooltip && <Tooltip term={c.name} />}
+                  <button onClick={() => toggleTacklebox('colors', c.name)} className={`ml-1 transition-colors ${tacklebox.colors.includes(c.name) ? 'text-[#e05c5c]' : 'text-[#7a8ea6] hover:text-[#00e5c7]'}`}><Heart className="w-3 h-3" fill={tacklebox.colors.includes(c.name) ? 'currentColor' : 'none'} /></button>
+                </div>
+              ))}
+            </div>
+            <div className="text-xs text-[#7a8ea6] mt-2">{colors.reason}</div>
+          </div>
+
+          <div className="bg-[#152a4f] border border-[#1e3a5f] rounded-xl p-4 mb-3">
+            <div className="text-[10px] uppercase tracking-[2px] text-[#7a8ea6] font-semibold mb-2.5">What to Grab at Walmart</div>
+            {walmart.map((w, i) => (
+              <div key={i} className="bg-[rgba(0,113,206,0.08)] border border-[rgba(0,113,206,0.25)] rounded-lg p-3 mb-2 last:mb-0">
+                <div className="flex items-center justify-between mb-0.5">
+                  <div className="font-semibold text-sm">{w.name}</div>
+                  <button onClick={() => toggleTacklebox('walmart', w.name)} className={`transition-colors ${tacklebox.walmart.includes(w.name) ? 'text-[#e05c5c]' : 'text-[#7a8ea6] hover:text-[#00e5c7]'}`}><Heart className="w-3.5 h-3.5" fill={tacklebox.walmart.includes(w.name) ? 'currentColor' : 'none'} /></button>
+                </div>
+                <div className="text-xs text-[#5cc8e0] leading-relaxed">{w.detail}</div>
+                <div className="text-[11px] text-[#c0c8d8] font-semibold mt-1">{w.price}</div>
+              </div>
+            ))}
+            <div className="text-[11px] text-[#7a8ea6] mt-2">All findable in the fishing aisle at most STL-area Walmart stores.</div>
+          </div>
+
+          <div className="bg-[rgba(192,200,216,0.06)] border border-[rgba(192,200,216,0.2)] rounded-xl p-3.5 text-[13px] text-[#c0c8d8] leading-relaxed mb-4">
+            <strong className="text-white">Pro Tip:</strong> {proTip}
+          </div>
+
+          <button onClick={resetAll} className="w-full py-3 bg-transparent text-[#7a8ea6] text-sm border-[1.5px] border-[#1e3a5f] rounded-xl cursor-pointer hover:border-[#7a8ea6] hover:text-[#e8f0f8] transition-all">Start Over</button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── MY TACKLEBOX ───────────────────────────────────────────────────
+  const renderTacklebox = () => (
+    <div className="animate-fade-up">
+      <div className="flex items-center justify-between mb-4">
+        <div className="font-display text-[28px] tracking-[2px] text-[#00e5c7]">My Tacklebox</div>
+        <button onClick={() => setView('welcome')} className="text-[#7a8ea6] hover:text-[#e8f0f8] transition-colors text-sm cursor-pointer bg-transparent border-none">← Back</button>
+      </div>
+
+      {tacklebox.lures.length === 0 && tacklebox.colors.length === 0 && tacklebox.walmart.length === 0 && (
+        <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-8 text-center">
+          <Heart className="w-10 h-10 text-[#1e3a5f] mx-auto mb-3" />
+          <div className="text-[#7a8ea6] text-sm">No saved items yet.</div>
+          <div className="text-[#7a8ea6] text-xs mt-1">Tap the heart icon on any lure, color, or Walmart item to save it here.</div>
+        </div>
+      )}
+
+      {tacklebox.lures.length > 0 && (
+        <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-4 mb-3">
+          <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-3">Saved Lures</div>
+          {tacklebox.lures.map((name, i) => (
+            <div key={i} className="flex items-center justify-between bg-[#152a4f] border border-[#1e3a5f] rounded-lg p-3 mb-2 last:mb-0">
+              <span className="text-sm font-semibold">{name}</span>
+              <button onClick={() => toggleTacklebox('lures', name)} className="text-[#e05c5c] hover:text-[#f09090] transition-colors"><Heart className="w-4 h-4" fill="currentColor" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tacklebox.colors.length > 0 && (
+        <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-4 mb-3">
+          <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-3">Saved Colors</div>
+          {tacklebox.colors.map((name, i) => (
+            <div key={i} className="flex items-center justify-between bg-[#152a4f] border border-[#1e3a5f] rounded-lg p-3 mb-2 last:mb-0">
+              <span className="text-sm font-semibold">{name}</span>
+              <button onClick={() => toggleTacklebox('colors', name)} className="text-[#e05c5c] hover:text-[#f09090] transition-colors"><Heart className="w-4 h-4" fill="currentColor" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tacklebox.walmart.length > 0 && (
+        <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-2xl p-4 mb-3">
+          <div className="text-[10px] uppercase tracking-[2px] text-[#00e5c7] font-semibold mb-3">Shopping Checklist</div>
+          {tacklebox.walmart.map((name, i) => (
+            <div key={i} className="flex items-center justify-between bg-[#152a4f] border border-[#1e3a5f] rounded-lg p-3 mb-2 last:mb-0">
+              <span className="text-sm font-semibold">{name}</span>
+              <button onClick={() => toggleTacklebox('walmart', name)} className="text-[#e05c5c] hover:text-[#f09090] transition-colors"><Heart className="w-4 h-4" fill="currentColor" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── REFERENCE MODAL ─────────────────────────────────────────────────
+  const renderReference = () => (
+    <div className="fixed inset-0 bg-[#0a1628] z-50 overflow-y-auto p-6 pb-20">
+      <div className="max-w-[480px] mx-auto">
+        <div className="flex items-center justify-between mb-5">
+          <div className="font-display text-[28px] tracking-[2px] text-[#00e5c7]">Reference</div>
+          <button onClick={() => setShowReference(false)} className="text-[#7a8ea6] hover:text-[#e8f0f8] transition-colors"><X className="w-6 h-6" /></button>
+        </div>
+
+        {Object.values(KNOT_GUIDES).map(guide => (
+          <div key={guide.name} className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-xl p-4 mb-3">
+            <div className="font-display text-lg tracking-wide text-[#c0c8d8] mb-3">{guide.name}</div>
+            {guide.steps.map((step, i) => (
+              <div key={i} className="flex gap-3 mb-2.5 last:mb-0">
+                <div className="w-6 h-6 rounded-full bg-[#00e5c7] text-[#0a1628] flex items-center justify-center text-xs font-bold flex-shrink-0">{i + 1}</div>
+                <div className="text-sm text-[#e8f0f8] leading-relaxed pt-0.5">{step}</div>
+              </div>
+            ))}
+            <div className="text-xs text-[#5cc8e0] mt-3 border-t border-[#1e3a5f] pt-2.5">{guide.tip}</div>
+          </div>
+        ))}
+
+        <div className="bg-[#0f1f3d] border border-[#1e3a5f] rounded-xl p-4 mb-3">
+          <div className="font-display text-lg tracking-wide text-[#c0c8d8] mb-3">Common Terms</div>
+          {Object.entries(TOOLTIPS).slice(0, 12).map(([term, def]) => (
+            <div key={term} className="mb-2.5 last:mb-0">
+              <span className="text-sm font-semibold text-[#00e5c7]">{term}</span>
+              <span className="text-sm text-[#7a8ea6]"> — {def}</span>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={() => setShowReference(false)} className="w-full py-2.5 bg-transparent text-[#7a8ea6] text-sm border-[1.5px] border-[#1e3a5f] rounded-xl cursor-pointer hover:border-[#7a8ea6] hover:text-[#e8f0f8] transition-all mt-2">← Back</button>
+      </div>
+    </div>
+  );
+
+  // ── ADMIN ──────────────────────────────────────────────────────────
+  const renderAdmin = () => (
+    <div className="fixed inset-0 bg-[#0a1628] z-50 overflow-y-auto p-6 pb-20">
+      <div className="max-w-[480px] mx-auto">
+        <div className="font-display text-[28px] tracking-[2px] text-[#c0c8d8] mb-1">Admin</div>
+        <div className="text-xs text-[#7a8ea6] mb-5">Hidden panel</div>
+        {!adminAuthed ? (
+          <div className="flex flex-col gap-2.5">
+            <input type="password" value={adminPw} onChange={e => setAdminPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && adminLogin()} placeholder="Password" className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7]" />
+            {adminMsg && <div className={`text-sm text-center py-2 rounded-lg ${adminMsg.type === 'success' ? 'bg-[rgba(0,229,199,0.15)] text-[#00e5c7]' : 'bg-[rgba(224,92,92,0.15)] text-[#f09090]'}`}>{adminMsg.text}</div>}
+            <button onClick={adminLogin} className="w-full py-3.5 bg-[#c0c8d8] text-[#0a1628] font-display text-lg tracking-[2px] rounded-xl cursor-pointer border-none">UNLOCK</button>
+            <button onClick={() => setShowAdmin(false)} className="w-full py-2.5 bg-transparent text-[#7a8ea6] text-sm border-[1.5px] border-[#1e3a5f] rounded-xl cursor-pointer hover:border-[#7a8ea6] transition-all">Back</button>
+          </div>
+        ) : (
+          <div>
+            {adminMsg && <div className={`text-sm text-center py-2 rounded-lg mb-2.5 ${adminMsg.type === 'success' ? 'bg-[rgba(0,229,199,0.15)] text-[#00e5c7]' : 'bg-[rgba(224,92,92,0.15)] text-[#f09090]'}`}>{adminMsg.text}</div>}
+            <div className="font-display text-lg tracking-wide text-[#e8f0f8] mb-3">Add New Lake</div>
+            <div className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">Name *</label><input value={adminForm.name} onChange={e => setAdminForm(s => ({ ...s, name: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7]" maxLength={70} /></div>
+            <div className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">Location *</label><input value={adminForm.location} onChange={e => setAdminForm(s => ({ ...s, location: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7]" maxLength={80} /></div>
+            <div className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">Region *</label><select value={adminForm.region} onChange={e => setAdminForm(s => ({ ...s, region: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7]"><option value="" disabled>Choose...</option>{Object.entries(REGION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+            <div className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">Type *</label><select value={adminForm.type} onChange={e => setAdminForm(s => ({ ...s, type: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7]"><option value="" disabled>Choose...</option><option value="lake">Lake</option><option value="pond">Pond</option><option value="river">River</option><option value="reservoir">Reservoir</option></select></div>
+            <div className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">Species (comma separated)</label><input value={adminForm.species} onChange={e => setAdminForm(s => ({ ...s, species: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7]" /></div>
+            {['spot1', 'spot2', 'spot3'].map((key, i) => (<div key={key} className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">{['🥇','🥈','🥉'][i]} Spot</label><textarea value={adminForm[key as keyof typeof adminForm]} onChange={e => setAdminForm(s => ({ ...s, [key]: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7] resize-none h-16" /></div>))}
+            <div className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">Special Regs</label><input value={adminForm.regs} onChange={e => setAdminForm(s => ({ ...s, regs: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7]" /></div>
+            <div className="mb-3"><label className="block text-[11px] uppercase tracking-widest text-[#7a8ea6] font-semibold mb-1.5">Notes</label><textarea value={adminForm.notes} onChange={e => setAdminForm(s => ({ ...s, notes: e.target.value }))} className="w-full bg-[#152a4f] border border-[#1e3a5f] rounded-lg text-[#e8f0f8] text-sm px-3 py-2.5 outline-none focus:border-[#00e5c7] resize-none h-16" /></div>
+            <button onClick={adminSaveLake} className="w-full py-3.5 bg-[#c0c8d8] text-[#0a1628] font-display text-lg tracking-[2px] rounded-xl cursor-pointer border-none">SAVE LAKE</button>
+            <div className="font-display text-lg tracking-wide text-[#e8f0f8] mt-5 mb-2.5">All Saved Lakes</div>
+            {adminLakes.length === 0 && <div className="text-[#7a8ea6] text-sm py-2.5">No lakes added yet.</div>}
+            {adminLakes.map(l => (<div key={l.id} className="bg-[#152a4f] border border-[#1e3a5f] rounded-lg p-3 mb-2 flex justify-between items-center"><div><div className="font-semibold text-[13px]">{l.name}</div><div className="text-[11px] text-[#7a8ea6]">{l.location}</div></div><button onClick={() => deleteAdminLake(l.id)} className="bg-[rgba(224,92,92,0.2)] border-none text-[#f09090] text-[11px] px-2.5 py-1 rounded-full cursor-pointer flex items-center gap-1"><Trash2 className="w-3 h-3" />Remove</button></div>))}
+            <button onClick={() => setShowAdmin(false)} className="w-full py-2.5 bg-transparent text-[#7a8ea6] text-sm border-[1.5px] border-[#1e3a5f] rounded-xl cursor-pointer hover:border-[#7a8ea6] transition-all mt-4">Back</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── MAIN RENDER ────────────────────────────────────────────────────
+  return (
+    <div className="relative z-10 max-w-[480px] mx-auto px-4">
+      <header className="pt-7 pb-5 text-center">
+        <div className="font-display text-[42px] tracking-[4px] text-[#00e5c7] leading-none">Novacast</div>
+        <div className="text-xs text-[#c0c8d8] tracking-[3px] uppercase mt-1">Your Fishing Mentor</div>
+      </header>
+
+      {view === 'welcome' && renderWelcome()}
+      {view === 'wizard' && (
+        <>
+          {renderWizardNav()}
+          {screen === 0 && renderScreen0()}
+          {screen === 1 && renderScreen1()}
+          {screen === 2 && renderScreen2()}
+          {screen === 3 && renderScreen3()}
+          {screen === 4 && renderScreen4()}
+        </>
+      )}
+      {view === 'result' && renderResult()}
+      {view === 'tacklebox' && renderTacklebox()}
+
+      {/* Bottom nav */}
+      {view !== 'welcome' && (
+        <div className="fixed bottom-0 left-0 right-0 bg-[#0a1628] border-t border-[#1e3a5f] z-40">
+          <div className="max-w-[480px] mx-auto flex justify-around py-2.5 px-4">
+            <button onClick={resetAll} className="flex flex-col items-center gap-0.5 text-[#7a8ea6] hover:text-[#00e5c7] transition-colors bg-transparent border-none cursor-pointer"><MapPin className="w-5 h-5" /><span className="text-[10px]">Home</span></button>
+            <button onClick={() => setView('tacklebox')} className="flex flex-col items-center gap-0.5 text-[#7a8ea6] hover:text-[#00e5c7] transition-colors bg-transparent border-none cursor-pointer"><Heart className="w-5 h-5" /><span className="text-[10px]">Tacklebox</span></button>
+            <button onClick={() => setShowReference(true)} className="flex flex-col items-center gap-0.5 text-[#7a8ea6] hover:text-[#00e5c7] transition-colors bg-transparent border-none cursor-pointer"><BookOpen className="w-5 h-5" /><span className="text-[10px]">Reference</span></button>
+            <button onClick={() => setShowAdmin(true)} className="flex flex-col items-center gap-0.5 text-[#1e3a5f] hover:text-[#7a8ea6] transition-colors bg-transparent border-none cursor-pointer"><Settings className="w-5 h-5" /><span className="text-[10px]">Admin</span></button>
+          </div>
+        </div>
+      )}
+
+      {showReference && renderReference()}
+      {showAdmin && renderAdmin()}
+
+      <div className="text-center text-[10px] text-[#1e3a5f] mt-6 pb-4">Powered by orionae.dev</div>
+    </div>
+  );
+}
+
+=== FILE: src/data/recommendations.ts ===
+export interface Lure {
+  name: string;
+  reason: string;
+  score: number;
+  for: string[];
+  talkingPoint?: string;
+  technique?: string;
+  tooltip?: string;
+  isBold?: boolean;
+}
+
+export interface Spot {
+  name: string;
+  detail: string;
+  shallow?: boolean;
+  deep?: boolean;
+  always?: boolean;
+}
+
+export interface FishMovement {
+  title: string;
+  depthPct: number;
+  moveText: string;
+}
+
+export interface ColorRec {
+  name: string;
+  hex: string;
+  tooltip?: string;
+}
+
+export interface ColorResult {
+  colors: ColorRec[];
+  reason: string;
+}
+
+export interface WalmartItem {
+  name: string;
+  detail: string;
+  price: string;
+}
+
+export const TOOLTIPS: Record<string, string> = {
+  'Chartreuse': 'A bright yellow-green color. Stands out in murky water like a highlighter.',
+  'Texas Rig': 'A weedless setup where the hook point is buried inside the soft plastic bait so it doesn\'t snag on weeds or rocks.',
+  'Carolina Rig': 'A setup with a weight separated from the hook by a swivel and leader line, letting the bait float naturally above the bottom.',
+  'Drop Shot': 'A finesse rig where the hook is tied above a bottom weight, keeping the bait suspended off the bottom.',
+  'Shaky Head': 'A small jighead with a light wire hook, designed to be shaken in place rather than retrieved.',
+  'Ned Rig': 'A tiny mushroom-shaped jighead with a short soft plastic bait. Incredibly simple and effective.',
+  'Wacky Rig': 'A soft plastic stick bait hooked through the middle so both ends wiggle as it falls.',
+  'Chatterbait': 'A jig with a vibrating metal blade on the front that creates flash and vibration as you retrieve it.',
+  'Spinnerbait': 'A wire frame with spinning metal blades that flash and vibrate through the water.',
+  'Football Jig': 'A jighead shaped like a football that stays upright on rocky bottoms.',
+  'Buzzbait': 'A surface lure with a spinning blade that churns the water as you reel it in.',
+  'Crankbait': 'A hard plastic lure with a lip that makes it dive and wobble like a swimming baitfish.',
+  'Lipless Crankbait': 'A sinking crankbait without a diving lip. You yo-yo it up and down off the bottom.',
+  'Tube Bait': 'A hollow soft plastic shaped like a small tube with tentacles. Mimics a crawfish or baitfish.',
+  'Beetle Spin': 'A tiny spinner lure with a soft plastic grub. A classic beginner bluegill lure.',
+  'Palomar Knot': 'One of the strongest and easiest fishing knots. Great for attaching hooks and lures.',
+  'Improved Clinch Knot': 'The most common beginner knot. Simple to tie and works well for most line sizes.',
+  'Quick-Snap': 'A small metal clip that lets you change lures without re-tying. Saves tons of time.',
+  'Finesse': 'A slow, subtle fishing style using small baits and gentle movements. The opposite of power fishing.',
+  'Slow-Roll': 'Reeling a lure just fast enough to keep the blade spinning — very slow and near the bottom.',
+  'Jig Vertically': 'Dropping your lure straight down and lifting it up and down in one spot, usually next to a dock or brush.',
+  'Carolina Keepers': 'Small rubber weights that pinch onto your line to adjust depth without re-tying.',
+};
+
+export const KNOT_GUIDES = {
+  palomar: {
+    name: 'Palomar Knot',
+    steps: [
+      'Double about 6 inches of line and pass the loop through the eye of the hook.',
+      'Tie an overhand knot with the doubled line — just a simple loop, don\'t pull tight yet.',
+      'Pull the hook/lure through the loop you just made, then pull both ends to tighten.',
+    ],
+    tip: 'This is the strongest knot for most fishing. It retains about 95% of line strength. Use it for everything.',
+  },
+  clinch: {
+    name: 'Improved Clinch Knot',
+    steps: [
+      'Thread the line through the hook eye, then wrap the tag end around the main line 5–7 times.',
+      'Pass the tag end through the small loop just above the eye of the hook.',
+      'Then pass it back through the big loop you just created and pull tight. Trim the tag end.',
+    ],
+    tip: 'The most popular beginner knot. Works great for monofilament line up to about 20lb test.',
+  },
+  quicksnap: {
+    name: 'Using Quick-Snaps',
+    steps: [
+      'Tie a Quick-Snap swivel to the end of your line using a Palomar knot.',
+      'To change lures, simply open the snap, slide the old lure off and the new one on, then close it.',
+      'Keep 2–3 Quick-Snaps in your tacklebox. They save you from re-tying every time you switch lures.',
+    ],
+    tip: 'Quick-Snaps are a game-changer for beginners. You\'ll switch lures 5x faster and spend more time fishing.',
+  },
+};
+
+export function getFishMovement(time: string, sky: string): FishMovement {
+  if (time === 'night') return { title: 'Night — Fish Roaming Shallow & Aggressive', depthPct: 22, moveText: 'Water temp evens out top-to-bottom at night — no hot surface layer pushing fish down. Bass and crappie move very shallow (1–4 ft) to feed on baitfish near the bank. One of the most underrated windows. Stay quiet — no lights in the water, no splashing.' };
+  if (time === 'dawn') return { title: 'Dawn — Best Window of the Day', depthPct: 18, moveText: 'Water is at its coolest and most oxygenated. Fish are still in shallow feeding mode from the night. The first 90 minutes after sunrise is statistically the top time on the water. They\'re sitting in 2–5 ft along the bank.' };
+  if (time === 'morning') return { title: 'Morning — Active, Moving to Structure', depthPct: 32, moveText: 'Surface water is warming but hasn\'t hit uncomfortable levels. Bass are still fairly shallow (3–6 ft) but shifting toward structure — docks, fallen trees, brush — rather than open bank. Work dock edges and cover.' };
+  if (time === 'midday') {
+    if (sky === 'overcast' || sky === 'rainy') return { title: 'Midday — Overcast Keeps Fish Higher', depthPct: 42, moveText: 'No direct sun means the surface hasn\'t baked. Fish stay shallower than a sunny midday — maybe 4–7 ft. Cloud cover is working in your favor right now. Still focus on structure but don\'t go too deep.' };
+    return { title: 'Midday Sunny — Fish Deep or in Shade', depthPct: 80, moveText: 'Sun is heating the top 3–4 ft of water. Fish have moved into shaded structure (under docks, brush) or dropped to 8–15 ft where it\'s cooler. Don\'t waste casts on open shallow water. Find shade or go deep.' };
+  }
+  if (time === 'afternoon') return { title: 'Afternoon — Starting to Come Back Up', depthPct: 52, moveText: 'Surface is cooling from peak midday heat. Fish begin shifting from deep structure back toward mid-depth (5–8 ft) as afternoon goes on. Work transition areas — drop-offs and edges between deep and shallow.' };
+  if (time === 'evening') return { title: 'Evening — Second Best Window, Back Shallow', depthPct: 24, moveText: 'As sun drops, surface cools and fish move back shallow to feed. Aggressive and easy to find — back in 2–5 ft along bank structure and coves. Evening topwater can be explosive. Second best window of the day.' };
+  return { title: 'Fish Movement', depthPct: 40, moveText: '' };
+}
+
+export function getGeneralBestRecommendation(month: number): { lures: Lure[]; colors: ColorResult; tip: string } {
+  const isSpawn = month >= 3 && month <= 5;
+  const isSummer = month >= 6 && month <= 8;
+  const isFall = month >= 9 && month <= 11;
+
+  if (isSpawn) {
+    return {
+      lures: [
+        { name: 'Spinnerbait (Chartreuse/White)', reason: 'Spring spawn staple. Covers water fast and triggers reaction strikes from aggressive bass.', score: 5, for: ['bass', 'anything'], talkingPoint: 'Bass are territorial during spawn — they\'ll hit a spinnerbait to chase it away from their bed, not just to eat it.', technique: 'Cast parallel to the bank and reel at a steady medium pace. If you feel a bump, don\'t set the hook immediately — count to 2 first.', isBold: true },
+        { name: 'Curly-tail Grub on 1/16 oz Jig', reason: 'The ultimate spring crappie lure. Jig vertically next to structure at 3–5 ft.', score: 5, for: ['crappie', 'anything'], talkingPoint: 'Crappie stack around brush and docks during spawn. A small jig dropped right in front of them is almost guaranteed.', technique: 'Drop it straight down next to a dock piling. Lift it up 6 inches, let it fall. Repeat. Most hits come on the fall.' },
+        { name: 'Ned Rig (Z-Man TRD)', reason: 'Most versatile lure ever. Works in almost any condition for multiple species.', score: 3, for: ['bass', 'anything', 'smallmouth'], talkingPoint: 'The Ned Rig catches fish when nothing else will. It\'s small, non-threatening, and looks like an easy meal.', technique: 'Cast it out, let it sink to the bottom, then drag it slowly with your rod tip. Small hops. Don\'t overwork it.' },
+      ],
+      colors: { colors: [{ name: 'Chartreuse', hex: '#d4f542', tooltip: 'A bright yellow-green color. Stands out in murky water like a highlighter.' }, { name: 'Green Pumpkin', hex: '#5a7a2a', tooltip: 'A natural olive-green. The most versatile soft plastic color ever made.' }, { name: 'White', hex: '#f0f0f0' }], reason: 'Spring colors: chartreuse for reaction strikes, green pumpkin for natural presentations, white for visibility.' },
+      tip: 'Spring is the best time to start fishing. Bass and crappie are shallow and aggressive. Focus on banks, docks, and any visible structure.',
+    };
+  }
+  if (isSummer) {
+    return {
+      lures: [
+        { name: 'Topwater Popper / Frog', reason: 'Early morning and evening topwater is explosive in summer.', score: 5, for: ['bass', 'anything'], talkingPoint: 'Summer bass ambush baitfish from cover. A popper mimics a struggling baitfish on the surface — they can\'t resist it.', technique: 'Cast near lily pads or weed edges. Pop it once, wait 3 seconds, pop again. The pause is when they strike.' },
+        { name: 'Drop Shot (Finesse Worm)', reason: 'When fish go deep in midday heat, a drop shot keeps your bait at their level.', score: 4, for: ['bass', 'anything'], talkingPoint: 'Summer heat pushes bass deep. A drop shot suspends your bait right in front of them without spooking them.', technique: 'Drop it straight down, keep the line tight, and barely wiggle the rod tip. The bait does the work.' },
+        { name: 'Ned Rig (Z-Man TRD)', reason: 'Versatile finesse option that works in any depth.', score: 3, for: ['bass', 'anything', 'smallmouth'], talkingPoint: 'The Ned Rig catches fish when nothing else will. It\'s small, non-threatening, and looks like an easy meal.', technique: 'Cast it out, let it sink to the bottom, then drag it slowly with your rod tip. Small hops. Don\'t overwork it.' },
+      ],
+      colors: { colors: [{ name: 'White', hex: '#f0f0f0' }, { name: 'Watermelon Red', hex: '#a83248' }, { name: 'Shad', hex: '#9aacb8' }], reason: 'Summer colors: white for topwater, natural shad colors for deeper presentations.' },
+      tip: 'Summer means early mornings and late evenings are your best windows. Fish deep during midday. Topwater at dawn is the most fun you can have fishing.',
+    };
+  }
+  if (isFall) {
+    return {
+      lures: [
+        { name: 'Lipless Crankbait (Shad Color)', reason: 'Fall bass chase shad aggressively. A lipless crankbait covers water fast.', score: 5, for: ['bass', 'anything'], talkingPoint: 'Fall means the shad migration — bass are feeding heavily on baitfish schools. A crankbait that looks like a shad is automatic.', technique: 'Cast long and reel at a medium-fast pace. Yo-yo it: reel 3 turns, pause, let it sink a foot, reel 3 more. Hits come on the pause.' },
+        { name: 'Spinnerbait (White/Chartreuse)', reason: 'Fall bass are aggressive and a spinnerbait triggers reaction strikes.', score: 4, for: ['bass', 'anything'], talkingPoint: 'Fall bass are putting on weight for winter. They\'ll chase a spinnerbait further than any other time of year.', technique: 'Cast to the bank and reel steadily. Vary your speed until you find what they want. If you get a short strike, speed up.' },
+        { name: 'Curly-tail Grub on 1/16 oz Jig', reason: 'Crappie feed heavily in fall before winter. Jig vertically near brush.', score: 4, for: ['crappie', 'anything'], talkingPoint: 'Fall crappie school up in deeper brush piles. Find one and you can catch 20 in a single spot.', technique: 'Drop it straight down next to brush. Lift and drop slowly. When you feel weight, set the hook — crappie have soft mouths.' },
+      ],
+      colors: { colors: [{ name: 'Shad', hex: '#9aacb8' }, { name: 'Chartreuse', hex: '#d4f542', tooltip: 'A bright yellow-green color. Stands out in murky water like a highlighter.' }, { name: 'Orange', hex: '#ff6b1a' }], reason: 'Fall colors: match the shad with natural tones, or go bold with orange/chartreuse for aggressive fish.' },
+      tip: 'Fall is the best feeding window of the year. Fish are aggressive and predictable. Cover water fast with search baits.',
+    };
+  }
+  // Winter
+  return {
+    lures: [
+      { name: 'Football Jig (Brown/Orange)', reason: 'Cold water = crawfish. Drag it painfully slowly along the bottom.', score: 5, for: ['bass', 'anything'], talkingPoint: 'Winter bass barely move. A football jig dragged right past their nose is one of the few things they\'ll eat.', technique: 'Cast, let it sink, then drag it 6 inches and wait 10 seconds. Drag 6 more inches, wait. When you think you\'re going slow enough — go slower.' },
+      { name: 'Drop Shot (Finesse Worm)', reason: 'Suspended presentation for lethargic cold-water fish.', score: 4, for: ['bass', 'anything'], talkingPoint: 'In cold water, bass won\'t chase. A drop shot keeps the bait in their face until they decide to eat it.', technique: 'Drop it straight down in the deepest water you can find. Barely move it. Patience is everything in winter.' },
+      { name: 'Live Minnow on Bobber', reason: 'When nothing else works, live bait always works.', score: 4, for: ['crappie', 'anything'], talkingPoint: 'Winter crappie will eat a live minnow when they won\'t touch anything artificial. It\'s not cheating — it\'s smart.', technique: 'Set your bobber at 8–12 ft deep near brush piles. Let the minnow do the work. Check it every 15 minutes.' },
+    ],
+    colors: { colors: [{ name: 'Brown/Orange', hex: '#8b4513' }, { name: 'Green Pumpkin', hex: '#5a7a2a', tooltip: 'A natural olive-green. The most versatile soft plastic color ever made.' }, { name: 'Smoke', hex: '#c8c8c8' }], reason: 'Winter colors: natural and subtle. Fish are sluggish and suspicious — match what they eat.' },
+    tip: 'Winter fishing is slow but rewarding. The key is patience and depth. Fish the deepest water near structure and slow everything down.',
+  };
+}
+
+export function applyRecentWeatherToDepth(mv: FishMovement, rw: string[]): FishMovement {
+  if (!rw || rw.length === 0) return mv;
+  const result = { ...mv };
+  if (rw.includes('heavy_rain_24h')) {
+    result.depthPct = Math.max(10, result.depthPct - 25);
+    result.moveText += ' Heavy recent rain has pushed fish into newly flooded shallow areas — look for water that just recently covered brush, grass, and bank vegetation.';
+  }
+  if (rw.includes('temp_drop')) {
+    result.depthPct = Math.min(90, result.depthPct + 20);
+    result.moveText += ' The recent cold front dropped fish deeper and made them lethargic. Expect them 2–4 ft deeper than normal for this time of day.';
+  }
+  if (rw.includes('warm_streak')) {
+    result.depthPct = Math.max(10, result.depthPct - 15);
+    result.moveText += ' The warm streak has accelerated spawning — fish are shallower than you\'d normally expect for this time of day.';
+  }
+  return result;
+}
+
+export function getRecentWeatherImpact(rw: string[]): string[] | null {
+  if (!rw || rw.length === 0) return null;
+  const impacts: string[] = [];
+  if (rw.includes('heavy_rain_24h')) impacts.push('<strong>Heavy rain in last 24hrs:</strong> Runoff has muddied the water and raised the level. Fish moved into newly flooded areas — shallow bushes, grass, and timber that\'s now underwater. Work those edges aggressively with a spinnerbait or chatterbait. The murky water actually helps you.');
+  if (rw.includes('light_rain_yesterday')) impacts.push('<strong>Light rain yesterday:</strong> Water is slightly off-color and fish are transitioning back to normal. They\'re a little sluggish but feeding. Focus on structure near the bank rather than open water.');
+  if (rw.includes('rain_2_3_days')) impacts.push('<strong>Rained 2–3 days ago:</strong> Clarity is recovering. Fish are settling back into normal patterns but still holding slightly deeper than usual. Check both shallow and mid-depth — it\'s a transitional day.');
+  if (rw.includes('temp_drop')) impacts.push('<strong>Recent temperature drop:</strong> Cold front aftermath — this is the toughest condition in fishing. Fish went deep and stopped chasing. Finesse only: drop shot, shaky head, slow jig. Patience required. Morning and evening are your only real windows today.');
+  if (rw.includes('warm_streak')) impacts.push('<strong>Warm streak (3+ days):</strong> Water has warmed faster than seasonal average. Spawn is further along — some bass are already on beds. Fish are shallower than normal for this time of year. Check the shallowest water first.');
+  if (rw.includes('no_rain_week')) impacts.push('<strong>No rain in a week+:</strong> Water is clear and settled — fish have returned to predictable structure. Go finesse and natural colors. They\'ve seen every lure thrown at them this week, so downsize and slow down.');
+  return impacts;
+}
+
+export function getBarometricImpact(pressure: string): { title: string; text: string; depthAdj: number; activityMod: number } | null {
+  switch (pressure) {
+    case 'falling':
+      return { title: 'Falling Barometer', text: 'Barometric pressure is dropping — a front is moving in. This is one of the best feeding triggers in fishing. Fish sense the change and feed aggressively before the weather hits. Cover water fast with search baits. This window can be short — fish it hard.', depthAdj: -10, activityMod: 2 };
+    case 'steady_low':
+      return { title: 'Low Pressure (Steady)', text: 'Low pressure means a front has arrived or is sitting overhead. Fish are still adjusting — they\'ve moved slightly shallower and are less pressured by bright sun. Good conditions overall. Work slightly shallower than normal.', depthAdj: -8, activityMod: 1 };
+    case 'rising':
+      return { title: 'Rising Barometer', text: 'Pressure is climbing after a front passed through. This is the toughest barometric condition — fish are sluggish, tucked tight to cover, and not chasing anything. Slow way down. Finesse presentations only. Fish the thickest cover you can find.', depthAdj: 15, activityMod: -2 };
+    case 'steady_high':
+      return { title: 'High Pressure (Steady)', text: 'High pressure means clear skies and stable weather. Fish have settled into predictable patterns but are holding tighter to structure. They\'re catchable but not aggressive — you need to put the bait right on them. Focus on shade and structure.', depthAdj: 8, activityMod: -1 };
+    default:
+      return null;
+  }
+}
+
+export function getSpots(spots: Spot[], time: string, sky: string): Spot[] {
+  const isDeep = time === 'midday' && (sky === 'sunny' || sky === 'partly');
+  const isShallow = ['night', 'dawn', 'morning', 'evening'].includes(time) || sky === 'overcast' || sky === 'rainy';
+  return [...spots].sort((a, b) => {
+    const sA = (a.always ? 3 : 0) + (isShallow && a.shallow ? 2 : 0) + (isDeep && a.deep ? 2 : 0);
+    const sB = (b.always ? 3 : 0) + (isShallow && b.shallow ? 2 : 0) + (isDeep && b.deep ? 2 : 0);
+    return sB - sA;
+  });
+}
+
+export function getLures(sky: string, water: string, temp: string, fish: string, time: string, pressure?: string): Lure[] {
+  const isNight = time === 'night';
+  const isDawn = time === 'dawn' || time === 'evening';
+  const isMidSun = time === 'midday' && (sky === 'sunny' || sky === 'partly');
+  const isOvercast = sky === 'overcast' || sky === 'rainy';
+  const isMurky = water === 'murky' || water === 'stained';
+  const isClear = water === 'clear' || water === 'green';
+  const isCold = temp === 'cold';
+  const isCool = temp === 'cool';
+  const isWarm = temp === 'warm';
+  const isFalling = pressure === 'falling';
+  const isRising = pressure === 'rising';
+  const isHighSteady = pressure === 'steady_high';
+
+  const ALL_LURES: Lure[] = [
+    // ── BASS / ANYTHING ──────────────────────────────────────────────────
+    { name: 'Black Buzzbait', reason: 'Night + shallow = buzzbait territory. Surface disturbance draws bass up from below.', score: (isNight ? 5 : 0) + (isMurky ? 1 : 0), for: ['bass', 'anything'], talkingPoint: 'At night, bass hunt by sensing surface vibration. A buzzbait creates just enough commotion to draw them up from the depths.', technique: 'Cast parallel to the bank. Reel just fast enough to keep the blade spinning on the surface. Steady pace — don\'t stop.', isBold: false },
+    { name: 'Black Jig w/ Crawfish Trailer', reason: 'Night fishing demands a big silhouette. Black creates the strongest outline in zero visibility.', score: (isNight ? 4 : 0) + (isCold || isCool ? 1 : 0), for: ['bass', 'anything'], talkingPoint: 'Bass can\'t see color at night — they see silhouettes. Black stands out against the sky above better than any other color.', technique: 'Cast to the bank, let it sink to the bottom, then drag it slowly. Lift your rod tip 6 inches, let it fall back. Most hits come on the fall.', isBold: false },
+    { name: 'Topwater Popper / Frog', reason: isOvercast ? 'Overcast = topwater prime time. Fish sit higher, bolder. Long pauses, explosive strikes.' : 'Dawn/dusk topwater window. Work it slow with pauses along the bank edges.', score: (isOvercast && !isNight ? 4 : 0) + (isDawn && !isNight ? 3 : 0) + (isWarm ? 1 : 0), for: ['bass', 'anything'], talkingPoint: isOvercast ? 'Cloud cover makes bass feel safe near the surface. They\'ll hit a topwater when they\'d never chase a deep lure.' : 'Dawn and dusk are when baitfish are most active near the surface — bass know this and wait for them.', technique: 'Cast near cover (lily pads, docks, overhanging trees). Pop it once, wait 3 seconds. Pop again. The pause is when they strike — don\'t set the hook until you feel weight.', isBold: false },
+    { name: 'Chatterbait / Bladed Jig', reason: isMurky && isOvercast ? 'IDEAL combo — murky + overcast means fish are aggressive and can\'t see well. Vibration + flash covers water fast.' : isMurky ? 'Murky water + vibrating blade = fish can feel it coming.' : 'Good all-around search bait for active fish.', score: (isMurky ? 3 : 0) + (isOvercast ? 2 : 0) + (!isCold ? 1 : 0), for: ['bass', 'anything'], talkingPoint: isMurky ? 'In murky water, fish find food by feeling vibration. A chatterbait\'s blade thumps like a heartbeat — they zero in on it.' : 'The chatterbait combines flash and vibration. It\'s like a spinnerbait that rattles — fish can\'t ignore it.', technique: 'Cast and reel at a steady medium pace. If you feel grass, rip it through hard — that\'s when strikes happen. Keep your rod tip at 10 o\'clock.', isBold: true },
+    { name: 'Spinnerbait (Chartreuse/White)', reason: isMurky && isCool ? 'Murky + cool water is the spinnerbait\'s home turf. Slow-roll it near the bottom.' : 'Versatile search bait. Flash and vibration works in off-color water.', score: (isMurky ? 3 : 0) + (isCool || isCold ? 1 : 0) + (isOvercast ? 1 : 0), for: ['bass', 'anything'], talkingPoint: 'The spinnerbait is the most forgiving lure for beginners. You can\'t fish it wrong — just cast and reel. The blade does the work.', technique: 'Cast to the bank and reel steadily. Try different speeds until you get a bite. If you feel a tick, don\'t set the hook immediately — count to 2.', isBold: true },
+    { name: 'Football Jig (Brown/Orange)', reason: isCold && isMidSun ? 'Cold water + midday = fish are deep and sluggish. Drag it inch-by-inch along the bottom.' : 'Cold/cool water = crawfish time. Drag painfully slow.', score: (isCold ? 4 : 0) + (isCool ? 2 : 0) + (isMidSun ? 1 : 0), for: ['bass', 'anything'], talkingPoint: 'Brown/orange mimics a crawfish — bass\'s #1 food source in cool water. When water is cold, crawfish are the only thing still moving slowly on the bottom.', technique: 'Cast, let it sink, then drag it along the bottom with your rod. 6 inches at a time, then pause. When you feel resistance, lean into it — don\'t jerk.', isBold: false },
+    { name: 'Drop Shot (Finesse Worm)', reason: isMidSun && isClear ? 'Sunny midday + clear water = toughest conditions. Drop shot keeps your bait at their depth.' : 'Finesse presentation for pressured or deep fish.', score: (isMidSun ? 3 : 0) + (isClear ? 2 : 0) + (isCold || isCool ? 1 : 0), for: ['bass', 'anything'], talkingPoint: 'When fish are suspended or pressured, a drop shot puts the bait right in front of them and keeps it there. They don\'t have to chase it.', technique: 'Drop it straight down. Keep the line tight. Gently shake the rod tip — the worm dances in place. When you feel a tap, reel down and set the hook sideways.', isBold: false },
+    { name: 'Shaky Head (Green Pumpkin Worm)', reason: isClear && !isMidSun ? 'Clear water + active fish = shaky head. Subtle, natural presentation.' : 'Clear water demands subtlety. Natural colors and slow presentation.', score: (isClear ? 3 : 0) + (!isMidSun ? 1 : 0) + (isCool || isWarm ? 1 : 0), for: ['bass', 'anything'], talkingPoint: 'In clear water, fish can see every detail. A shaky head with a green pumpkin worm looks exactly like a small creature on the bottom — they can\'t tell it\'s fake.', technique: 'Cast, let it sink, then barely shake your rod tip while reeling very slowly. The worm quivers in place. When you feel a tap, reel fast and set the hook.', isBold: false },
+    { name: 'Shallow Crankbait (Shad Color)', reason: isClear && isOvercast ? 'Clear water + overcast = bass are aggressive. Crankbait covers water fast.' : 'Good covering bait when fish are active.', score: (isClear ? 2 : 0) + (isOvercast ? 2 : 0) + (isWarm ? 1 : 0) + (!isCold ? 1 : 0), for: ['bass', 'anything'], talkingPoint: 'A crankbait mimics a fleeing baitfish. Bass hit it out of instinct — they don\'t think, they react. That\'s why it works even when fish aren\'t hungry.', technique: 'Cast and reel at a steady medium pace. Bump it into rocks and wood — the deflection triggers strikes. Keep your rod at 10 o\'clock.', isBold: false },
+    { name: 'Ned Rig (Z-Man TRD)', reason: 'The most versatile lure ever made. Works in almost any condition.', score: 1, for: ['bass', 'anything', 'smallmouth'], talkingPoint: 'The Ned Rig catches fish when nothing else will. It\'s small, non-threatening, and looks like an easy meal. Every pro keeps one tied on.', technique: 'Cast it out, let it sink to the bottom, then drag it slowly with your rod tip. Small hops. Don\'t overwork it — the bait does the work on its own.', isBold: false },
+    // ── BAROMETRIC PRESSURE ──────────────────────────────────────────────
+    { name: 'Lipless Crankbait (Red Craw)', reason: isFalling ? 'Falling barometer = aggressive feeding window. Cover water fast with reaction strikes.' : 'Good search bait when fish are active.', score: (isFalling ? 4 : 0) + (isWarm ? 1 : 0), for: ['bass', 'anything'], talkingPoint: isFalling ? 'Falling pressure triggers a feeding frenzy — fish know a front is coming and eat everything they can before it hits. This is your best window.' : 'A lipless crankbait vibrates and rattles on the retrieve. Fish attack it out of reflex.', technique: 'Cast long and yo-yo it: reel 3 turns, pause and let it sink a foot, reel 3 more. Most strikes come on the pause. Keep your rod tip low.', isBold: true },
+    { name: 'Carolina Rig (Lizard or Brush Hog)', reason: isRising || isHighSteady ? 'Rising/high pressure = fish are sluggish. Slow bottom presentation for lockjaw fish.' : 'Slow bottom presentation for finicky fish.', score: (isRising ? 4 : 0) + (isHighSteady ? 2 : 0), for: ['bass', 'anything'], talkingPoint: isRising ? 'After a front passes, bass won\'t chase anything. A Carolina rig sits on the bottom and waits for them to come to it. Patience wins these days.' : 'The Carolina rig separates the weight from the bait, so your lure floats naturally above the bottom. Fish see it and eat it without suspicion.', technique: 'Cast, let it sink, then drag it slowly along the bottom. Long pauses. When you feel a tap, don\'t set the hook — wait until you feel the fish swimming away, then set.', isBold: false },
+    { name: 'Wacky Rig (Senko)', reason: isRising ? 'Rising pressure after a front = the toughest bite. Wacky rig is the most non-threatening presentation.' : 'Finesse fallback that works when nothing else does.', score: (isRising ? 5 : 0) + (isHighSteady ? 2 : 0) + 1, for: ['bass', 'anything'], talkingPoint: isRising ? 'When the barometer is rising, bass have lockjaw. A wacky-rigged Senko falling on slack line is the only thing they\'ll consider eating. It looks that helpless.' : 'The Senko is the most successful bass lure of the last 20 years. Fished wacky style, both ends wiggle as it sinks — it drives bass crazy.', technique: 'Hook the Senko through the middle. Cast and let it sink on completely slack line. Don\'t move it. When you see your line twitch or move sideways, reel down and set the hook.', isBold: false },
+    // ── SMALLMOUTH ──────────────────────────────────────────────────────
+    { name: 'Tube Bait (Smoke/Green, 3")', reason: isClear ? 'Clear river water + tube = perfect match. Cast upstream, let it drift naturally.' : 'Tube on the bottom = crawfish. #1 smallmouth producer.', score: (isClear ? 3 : 0) + 3, for: ['smallmouth'], talkingPoint: 'Smallmouth eat crawfish like candy. A tube bait dragged along the bottom looks exactly like a crawfish in defense posture — they smash it.', technique: 'Cast upstream at a 45-degree angle. Let it bounce along the bottom with the current. Don\'t reel — just keep the line tight enough to feel the bottom. Set the hook on any different feeling.', isBold: false },
+    { name: 'Small Jig (1/8 oz, Brown/Orange)', reason: isCold || isCool ? 'Cold + rocky bottom + brown jig = irresistible to smallmouth.' : 'Drag slowly along rocky bottom. Brown/orange = crawfish.', score: (isCold || isCool ? 3 : 0) + 2, for: ['smallmouth'], talkingPoint: 'Brown and orange are crawfish colors. Smallmouth root around rocks looking for crawfish — a brown jig looks like the real thing.', technique: 'Cast to rocky areas and drag it slowly along the bottom. Small hops. If you feel it get heavy or mushy, set the hook — smallmouth often just suck it in.', isBold: false },
+    { name: 'Inline Spinner (Mepps #2, Silver)', reason: isOvercast ? 'Overcast + inline spinner = active smallmouth will chase it.' : 'Cast across current, let it swing. Smallmouth attack the flash.', score: (isOvercast ? 2 : 0) + (isWarm ? 1 : 0) + 1, for: ['smallmouth'], talkingPoint: 'Inline spinners have been catching smallmouth for 80 years. The spinning blade flashes like a fleeing baitfish — smallmouth can\'t resist chasing it.', technique: 'Cast across current at a 45-degree angle. Let the current swing the spinner downstream. Reel just fast enough to keep the blade spinning. Strikes often come at the end of the swing.', isBold: true },
+    // ── CRAPPIE ────────────────────────────────────────────────────────
+    { name: 'Curly-tail Grub on 1/16 oz Jig', reason: 'The ultimate crappie lure. Jig vertically next to structure at 3–5 ft.', score: 4, for: ['crappie', 'anything'], talkingPoint: 'Crappie stack around brush and docks. A small jig dropped right in front of them is almost guaranteed. They can\'t resist the curly tail action.', technique: 'Drop it straight down next to a dock piling or brush. Lift it up 6 inches, let it fall. Repeat. Most hits come on the fall — when your line twitches, set the hook gently.', isBold: false },
+    { name: 'Live Minnow on Bobber', reason: isCold ? 'Cold water = live minnow wins. Set bobber at 4–5 ft near structure.' : 'Set bobber at 3–5 ft near structure. Can\'t beat live bait during spawn.', score: (isCold ? 2 : 0) + 3, for: ['crappie', 'anything'], talkingPoint: 'When crappie won\'t hit anything artificial, a live minnow still works. It\'s not cheating — it\'s the smartest thing you can do as a beginner.', technique: 'Hook the minnow through the lips or behind the dorsal fin. Set your bobber at 3–5 ft. Cast near brush or docks and wait. When the bobber goes under, reel fast and lift.', isBold: false },
+    // ── CATFISH ────────────────────────────────────────────────────────
+    { name: 'Chicken Liver on Bottom Rig', reason: isNight ? 'Night + chicken liver = catfish at their most active. They hunt by smell after dark.' : 'Scent is everything for catfish. Heavy Carolina rig on the bottom.', score: (isNight ? 2 : 0) + 3, for: ['catfish'], talkingPoint: 'Catfish find food by smell, not sight. Chicken liver puts out a massive scent trail in the water. They follow it right to your hook.', technique: 'Put the liver on a circle hook. Cast to the bottom and wait. When the rod tip starts bouncing, don\'t set the hook — just start reeling. Circle hooks set themselves.', isBold: false },
+    { name: 'Cut Shad (Bottom Rig)', reason: 'Missouri catfish love fresh cut shad. Circle hook on a heavy rig.', score: 3, for: ['catfish'], talkingPoint: 'Cut shad is the #1 natural catfish food in Missouri rivers. The oily scent disperses through the water like a dinner bell.', technique: 'Cut the shad into 1-inch chunks. Thread it on a circle hook. Cast to current breaks and bottom structure. Wait for the rod to load up, then reel.', isBold: false },
+    { name: 'Stink Bait (Magic Bait / Punch Bait)', reason: isWarm ? 'Warm water = catfish metabolism is up and they\'re chasing scent hard.' : 'Strong scent trail in any conditions.', score: (isWarm ? 2 : 0) + 2, for: ['catfish'], talkingPoint: 'Stink bait is exactly what it sounds like — it smells terrible to us but catfish love it. The worse it smells, the better it works.', technique: 'Use a dip worm or treble hook. Dip it in the bait, cast to the bottom. Re-check your bait every 15 minutes — catfish can clean it off without you feeling a thing.', isBold: true },
+    // ── BLUEGILL ───────────────────────────────────────────────────────
+    { name: 'Live Cricket on #8 Hook', reason: 'Bluegill literally cannot resist a cricket. Tiny bobber, 4lb line, small hook.', score: 4, for: ['bluegill', 'anything'], talkingPoint: 'Bluegill are the perfect beginner fish. They\'re abundant, aggressive, and a cricket under a bobber is all you need. Kids love this setup.', technique: 'Put the cricket on a tiny #8 hook under a small bobber. Cast near bank edges and weed lines. When the bobber twitches, lift gently — bluegill have small mouths.', isBold: false },
+    { name: '1/32 oz Beetle Spin (White or Chartreuse)', reason: isMurky ? 'Murky water + Beetle Spin chartreuse = bluegill can find it.' : 'Classic spring bluegill lure. Cast along weedy banks.', score: (isMurky ? 1 : 0) + 3, for: ['bluegill', 'anything'], talkingPoint: 'The Beetle Spin has been catching STL-area bluegill for 50 years. It\'s cheap, simple, and it works. Every tacklebox should have one.', technique: 'Cast along weedy banks and reel very slowly. The small spinning blade creates flash that bluegill can see from a distance. Set the hook gently — they have soft mouths.', isBold: true },
+    { name: 'Small Wax Worm / Red Worm on Jig', reason: isCold ? 'Cold water bluegill are slow. Drop a tiny worm straight down.' : 'Simple and effective. Drop it near any visible cover.', score: (isCold ? 3 : 0) + 2, for: ['bluegill'], talkingPoint: 'Wax worms and red worms are bluegill candy. When the water is cold and fish won\'t chase, a worm right in their face is irresistible.', technique: 'Tip a tiny jig head with a wax worm. Drop it straight down next to any cover. Barely move it. When you feel a tiny tap, lift gently.', isBold: false },
+  ];
+
+  const relevant = ALL_LURES
+    .filter(l => l.for.includes(fish))
+    .sort((a, b) => b.score - a.score);
+
+  const result = relevant.slice(0, 3);
+  if (result.length < 2 && !result.find(r => r.name.includes('Ned'))) {
+    const ned = ALL_LURES.find(l => l.name.includes('Ned'));
+    if (ned) result.push(ned);
+  }
+  return result.slice(0, 3);
+}
+
+export function getColors(_sky: string, water: string, time: string): ColorResult {
+  const isNight = ['night', 'dawn', 'evening'].includes(time);
+  if (water === 'murky') return { colors: [{ name: 'Chartreuse', hex: '#d4f542', tooltip: 'A bright yellow-green color. Stands out in murky water like a highlighter.' }, { name: 'Bright Orange', hex: '#ff6b1a' }, { name: 'White', hex: '#f0f0f0' }], reason: 'Murky water = go loud. Chartreuse is the #1 murky-water color. Fish detect it in near-zero visibility.' };
+  if (water === 'stained') {
+    if (isNight) return { colors: [{ name: 'Black', hex: '#1a1a1a' }, { name: 'Chartreuse', hex: '#d4f542', tooltip: 'A bright yellow-green color. Stands out in murky water like a highlighter.' }, { name: 'Dark Blue', hex: '#1a1a4e' }], reason: 'At night in stained water, black creates the strongest silhouette. Chartreuse if there\'s any ambient light.' };
+    return { colors: [{ name: 'Chartreuse', hex: '#d4f542', tooltip: 'A bright yellow-green color. Stands out in murky water like a highlighter.' }, { name: 'Watermelon Red', hex: '#a83248' }, { name: 'Black/Blue', hex: '#1a1a4e' }], reason: 'Stained water needs contrast. Bright for reaction strikes, dark for silhouette — both work.' };
+  }
+  if (water === 'clear') return { colors: [{ name: 'Green Pumpkin', hex: '#5a7a2a', tooltip: 'A natural olive-green. The most versatile soft plastic color ever made.' }, { name: 'Natural Shad', hex: '#9aacb8' }, { name: 'Smoke/Clear', hex: '#c8c8c8' }], reason: 'Clear water = match nature. Fish can see everything — subtle and natural wins. Avoid bright colors.' };
+  if (water === 'green') return { colors: [{ name: 'White/Pearl', hex: '#f0f0ee' }, { name: 'Chartreuse', hex: '#d4f542', tooltip: 'A bright yellow-green color. Stands out in murky water like a highlighter.' }, { name: 'Yellow', hex: '#f5d020' }], reason: 'White and chartreuse stand out most against green water. Pearl is especially effective.' };
+  return { colors: [{ name: 'Chartreuse', hex: '#d4f542', tooltip: 'A bright yellow-green color. Stands out in murky water like a highlighter.' }, { name: 'Green Pumpkin', hex: '#5a7a2a', tooltip: 'A natural olive-green. The most versatile soft plastic color ever made.' }], reason: 'All-purpose colors for variable conditions.' };
+}
+
+export function getWalmart(fish: string, water: string, time: string): WalmartItem[] {
+  const items: WalmartItem[] = [];
+  const isNight = time === 'night';
+  if (water === 'murky' || water === 'stained') {
+    items.push({ name: 'Johnson Beetle Spin — Chartreuse', detail: 'One of the best murky-water lures ever. Works for bass, crappie, and bluegill. Spinner section.', price: '~$4–6' });
+    items.push({ name: 'Strike King Spinnerbait (3/8 oz, Chart/White)', detail: 'Reliable brand stocked at most Walmarts. Get 3/8 oz size for spring bass.', price: '~$5–7' });
+  }
+  if (water === 'clear') {
+    items.push({ name: 'Zoom Trick Worm — Green Pumpkin', detail: 'Classic soft plastic for clear water. Texas rig or shaky head. Pack of 20.', price: '~$4–5' });
+  }
+  if (fish === 'crappie' || fish === 'anything') {
+    items.push({ name: 'Bobby Garland Crappie Grubs (Multi-pack)', detail: 'Small curly tail grubs made for crappie. Assorted color pack — pink, white, chartreuse.', price: '~$4–5' });
+  }
+  if (fish === 'catfish' || fish === 'anything') {
+    items.push({ name: 'Magic Bait Catfish Dip Bait', detail: 'Stinky but effective. Use the included dip worm or bait holder hook.', price: '~$4–6' });
+    items.push({ name: 'Chicken Liver — Meat Section', detail: 'Grocery aisle, not the fishing aisle. Best natural catfish bait, way cheaper than packaged.', price: '~$2–3' });
+  }
+  if (fish === 'bluegill' || fish === 'anything') {
+    items.push({ name: 'Live Crickets (Sporting Goods counter)', detail: 'Most STL Walmarts carry live crickets. Best bluegill bait. Ask at the counter.', price: '~$3' });
+  }
+  if (fish === 'smallmouth') {
+    items.push({ name: 'Z-Man TRD (Ned Rig kit)', detail: 'The best finesse kit for smallmouth. Green pumpkin or natural color.', price: '~$7–10' });
+  }
+  if (isNight) {
+    items.push({ name: 'Clip-on Bobber Lights / Glow Sticks', detail: 'Lets you see your bobber and line at night. Fishing accessories peg hooks.', price: '~$3–5' });
+  }
+  items.push({ name: 'Berkley Gulp! Nightcrawlers', detail: 'Universal backup bait — works for everything. Always keep these in your box.', price: '~$5–7' });
+  return items.slice(0, 5);
+}
+
+export function getProTip(sky: string, water: string, temp: string, wind: string, _fish: string, time: string, loc: string, pressure?: string): string {
+  if (pressure === 'falling') return 'The barometer is dropping — this is the golden window. Fish can sense the pressure change and they feed hard before a front arrives. This bite can turn off suddenly once the front hits, so fish aggressively right now. Cover water with search baits (spinnerbait, crankbait, chatterbait).';
+  if (pressure === 'rising') return 'Rising barometer after a cold front is the toughest fishing condition there is. Fish are lockjaw. The only way to catch them is to slow down dramatically — wacky rig, drop shot, shaky head. Put the bait right on their nose and barely move it. Patience wins these days.';
+  if (loc === 'bigriver' || loc === 'bigriverarnold') return 'Big River has some of the clearest water near STL and the best wild smallmouth. Go light — 6lb line max, small natural presentations. Wade quietly upstream. The trophy designation means the fish get big here because people have to release them.';
+  if (loc === 'cuivreisland') return 'Cuivre Island is worth the longer drive. The Mississippi backwater sloughs are completely different fishing from any STL-area lake — you may be the only person there. Spawn crappie stack in flooded timber like nowhere else nearby.';
+  if (loc === 'missouririver' || loc === 'klondike') return 'The Missouri River spring white bass run is happening right now. White bass stack in current seams chasing baitfish moving upstream. Small white or chartreuse spinnerbaits or jigs worked in the current will get hammered.';
+  if (time === 'night') return 'Night fishing is seriously underrated. The water temp is even, zero boat traffic, and bass feed aggressively in the dark. Stay quiet — no splashing, no lights shining in the water. The biggest fish of your season might be sitting 5 feet from the bank.';
+  if (time === 'midday' && (sky === 'sunny' || sky === 'partly')) return 'Midday sun is the hardest window to fish. One dock can hold 10 bass. Cast parallel to the dock from the side — not from the end — so your lure stays in the shade zone for the whole retrieve.';
+  if (sky === 'overcast' && (water === 'murky' || water === 'stained')) return 'Overcast + murky water is a sweet spot — fish are aggressive and less spooked. Move faster than normal and cover water. A spinnerbait or chatterbait lets you search a whole cove in 20 minutes.';
+  if (wind === 'strong') return 'Wind is your friend — it disorients baitfish and oxygenates the water. Cast INTO the wind-blown bank. Fish stack there to pick off confused baitfish. The wavy side always outfishes the calm side.';
+  if (temp === 'cold') return 'Cold water = slow metabolism. Count to 10 after your lure hits before you start retrieving. When you think you\'re slow enough — go slower. Fish won\'t chase. Bring the bait to them.';
+  if (time === 'dawn') return 'You picked the best window of the day. The very first cast into a fresh untouched cove at dawn is often the best cast of the whole trip. Don\'t waste the first 30 minutes setting up — be ready to cast the moment there\'s enough light.';
+  return 'When you catch a fish in a spot, don\'t leave. Cast right back to the same place 2–3 more times. Multiple fish stack in the same area and the commotion of one catch can trigger the others.';
+}
+
+export function getCustomSpots(type: string, notes: string): Spot[] {
+  const hasDock = notes && notes.toLowerCase().includes('dock');
+  const isShallow = notes && (notes.toLowerCase().includes('shallow') || type === 'pond');
+  const base: Spot[] = [
+    { name: 'Any Visible Structure', detail: 'Start at whatever structure you can see — fallen trees, dock pilings, rocks, weed lines. These are always where fish hold.', always: true },
+    { name: hasDock ? 'Fish the Dock' : 'Shaded Bank / Cover', detail: hasDock ? 'Work every piling systematically. Bass and crappie park under docks, especially mid-day. Pitch a jig tight to each post.' : 'Find the most shaded bank — overhanging trees, bushes touching water. Fish hold in shade during daylight.', always: true },
+    { name: type === 'river' || type === 'creek' ? 'Current Break / Eddy' : 'Deepest Visible Water', detail: type === 'river' || type === 'creek' ? 'Cast upstream of any rock or obstruction and let your lure drift naturally into the calm pocket behind it.' : 'The deepest area is a midday refuge. If you can spot a color change in the water (darker = deeper), that\'s your midday target.', deep: true },
+  ];
+  if (isShallow) {
+    base.push({ name: 'Shallow Edges — Spawn Check', detail: 'Walk the shallow edges slowly and look for bedding fish (circular cleared spots on bottom). If you see them, pitch a lure past the bed and drag it through.', shallow: true });
+  }
+  return base;
+}
+
+export const DEFAULT_SPOTS: Spot[] = [
+  { name: 'Main Fishing Bank', detail: 'Start at the most accessible bank and look for structure: fallen trees, dock pilings, rocks, and weed edges. These are always the best starting points.', always: true },
+  { name: 'Any Visible Shade / Cover', detail: 'Bass and crappie relate to overhead cover and shade. Any dock, overhanging tree, or brush pile is worth several casts.', always: true },
+  { name: 'Inlet / Outflow Areas', detail: 'Where water enters or leaves the lake concentrates oxygen and baitfish. Always worth checking first.', shallow: true },
+];
+
+=== FILE: src/data/waterBodies.ts ===
+export interface WaterBodyTag {
+  label: string;
+  color: 'green' | 'orange' | 'red' | 'blue';
+}
+
+export interface WaterBody {
+  key: string;
+  name: string;
+  location: string;
+  region: string;
+  type: string;
+  species: string[];
+  tags: WaterBodyTag[];
+  latitude?: number;
+  longitude?: number;
+  spots?: Spot[];
+  specialRegs?: string;
+}
+
+export interface Spot {
+  name: string;
+  detail: string;
+  shallow?: boolean;
+  deep?: boolean;
+  always?: boolean;
+}
+
+export const REGION_LABELS: Record<string, string> = {
+  fenton: 'Fenton / South',
+  westcounty: 'West County',
+  southcounty: 'South County / Hwy 30',
+  jeffco: 'Jefferson Co.',
+  stcharles: 'St. Charles Co.',
+  i70: 'I-70 / Hwy 70 Belt',
+  rivers: 'Rivers',
+  springfield: 'Springfield / Joplin',
+  stockton: 'Stockton / Neosho',
+  custom: 'Other',
+};
+
+export const TYPE_LABELS: Record<string, string> = {
+  pond: 'Small Pond',
+  lake: 'Lake',
+  river: 'River / Creek',
+  reservoir: 'Reservoir',
+};
+
+=== FILE: src/index.css ===
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0a1628;
+  --surface: #0f1f3d;
+  --surface2: #152a4f;
+  --accent: #00e5c7;
+  --accent2: #c0c8d8;
+  --water: #1a6b8a;
+  --text: #e8f0f8;
+  --muted: #7a8ea6;
+  --danger: #e05c5c;
+  --border: #1e3a5f;
+  --teal-glow: rgba(0, 229, 199, 0.15);
+  --silver: #c0c8d8;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding-bottom: 80px;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 70% 0%, rgba(0,229,199,0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 20% 100%, rgba(26,107,138,0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(15,31,61,0.5) 0%, transparent 80%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.font-display {
+  font-family: 'Bebas Neue', sans-serif;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.35s ease both;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.5s ease both;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(0,229,199,0.2); }
+  50% { box-shadow: 0 0 20px rgba(0,229,199,0.4); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.depth-bar-animate {
+  transition: width 0.6s ease;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+=== FILE: src/main.tsx ===
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>
+);
+
+=== FILE: src/lib/supabase.ts ===
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+=== FILE: src/vite-env.d.ts ===
+/// <reference types="vite/client" />
+
+=== FILE: index.html ===
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1b1e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <title>Novacast — Your Fishing Mentor</title>
+    <meta
+      name="description"
+      content="Novacast — your beginner-friendly fishing mentor. Local spots, lure recommendations, and conditions for the STL area."
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+=== FILE: package.json ===
+{
+  "name": "vite-react-typescript-starter",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "lucide-react": "^0.344.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.1",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.18",
+    "eslint": "^9.9.1",
+    "eslint-plugin-react-hooks": "^5.1.0-rc.0",
+    "eslint-plugin-react-refresh": "^0.4.11",
+    "globals": "^15.9.0",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.3.0",
+    "vite": "^5.4.2"
+  }
+}
+
+=== FILE: vite.config.ts ===
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  optimizeDeps: {
+    exclude: ['lucide-react'],
+  },
+});
+
+=== FILE: tailwind.config.js ===
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+=== FILE: postcss.config.js ===
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+
+=== FILE: tsconfig.json ===
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+
+=== FILE: tsconfig.app.json ===
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}
+
+=== FILE: tsconfig.node.json ===
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["vite.config.ts"]
+}
+
+=== FILE: eslint.config.js ===
+import js from '@eslint/js';
+import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import tseslint from 'typescript-eslint';
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  }
+);
+
+=== FILE: .gitignore ===
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.env
+
+=== FILE: .env ===
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhjc2JzdGJ0amtubmdzbHJmeGZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NTcwMTcsImV4cCI6MjA5MzUzMzAxN30.D3MtwZSxisGbDPKweFPGD7ABYQVtVpCD_lQpEitcmdY
+VITE_SUPABASE_URL=https://hcsbstbtjknngslrfxfs.supabase.co
+
+=== FILE: supabase/migrations/20260505114415_create_water_bodies_and_lakes.sql ===
+/*
+  # Create water bodies and custom lakes tables
+
+  1. New Tables
+    - `water_bodies`
+      - `id` (uuid, primary key)
+      - `key` (text, unique) - short identifier like 'preslar', 'bigriver'
+      - `name` (text) - display name
+      - `location` (text) - area description
+      - `region` (text) - region tab key (fenton, westcounty, etc.)
+      - `type` (text) - lake, pond, river, reservoir
+      - `species` (text array) - fish species present
+      - `tags` (jsonb) - additional tags (special regs, notes, etc.)
+      - `latitude` (float) - geographic latitude
+      - `longitude` (float) - geographic longitude
+      - `spots` (jsonb) - array of spot objects with name, detail, shallow/deep/always flags
+      - `special_regs` (text) - special regulations text
+      - `created_at` (timestamptz)
+
+    - `custom_lakes`
+      - `id` (uuid, primary key)
+      - `user_id` (uuid, references auth.users) - owner of the custom lake
+      - `name` (text)
+      - `location` (text)
+      - `type` (text) - pond, lake, river, reservoir
+      - `notes` (text)
+      - `created_at` (timestamptz)
+
+    - `admin_lakes`
+      - `id` (uuid, primary key)
+      - `name` (text)
+      - `location` (text)
+      - `region` (text)
+      - `type` (text)
+      - `species` (text array)
+      - `spots` (jsonb)
+      - `special_regs` (text)
+      - `notes` (text)
+      - `created_at` (timestamptz)
+
+  2. Security
+    - Enable RLS on all tables
+    - water_bodies: readable by all authenticated users
+    - custom_lakes: users can only CRUD their own lakes
+    - admin_lakes: readable by all authenticated users, insert/update/delete only for service role
+*/
+
+CREATE TABLE IF NOT EXISTS water_bodies (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  key text UNIQUE NOT NULL,
+  name text NOT NULL,
+  location text NOT NULL,
+  region text NOT NULL,
+  type text NOT NULL DEFAULT 'lake',
+  species text[] DEFAULT '{}',
+  tags jsonb DEFAULT '[]',
+  latitude double precision,
+  longitude double precision,
+  spots jsonb DEFAULT '[]',
+  special_regs text,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE water_bodies ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can read water bodies"
+  ON water_bodies FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE TABLE IF NOT EXISTS custom_lakes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  location text DEFAULT '',
+  type text NOT NULL DEFAULT 'pond',
+  notes text DEFAULT '',
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE custom_lakes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can read own custom lakes"
+  ON custom_lakes FOR SELECT
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own custom lakes"
+  ON custom_lakes FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own custom lakes"
+  ON custom_lakes FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own custom lakes"
+  ON custom_lakes FOR DELETE
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS admin_lakes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  location text NOT NULL,
+  region text NOT NULL,
+  type text NOT NULL DEFAULT 'lake',
+  species text[] DEFAULT '{}',
+  spots jsonb DEFAULT '[]',
+  special_regs text DEFAULT '',
+  notes text DEFAULT '',
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE admin_lakes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can read admin lakes"
+  ON admin_lakes FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Service role can insert admin lakes"
+  ON admin_lakes FOR INSERT
+  TO service_role
+  WITH CHECK (true);
+
+CREATE POLICY "Service role can update admin lakes"
+  ON admin_lakes FOR UPDATE
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY "Service role can delete admin lakes"
+  ON admin_lakes FOR DELETE
+  TO service_role
+  USING (true);
