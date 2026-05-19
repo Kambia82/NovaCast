@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cast Smart – STL Fishing Guide</title>
+<title>NovaCast</title>
 <meta name="theme-color" content="#0d1b1e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Cast Smart">
+<meta name="apple-mobile-web-app-title" content="NovaCast">
 <meta name="description" content="STL area fishing guide — local spots, lure recommendations, and conditions.">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -995,7 +995,7 @@ function getProTip(sky, water, temp, wind, fish, time, loc) {
 }
 
 // ── MY LAKES — persistent storage ──────────────────────────────────────────
-const STORAGE_KEY = 'castSmart_myLakes';
+const STORAGE_KEY = 'novacast_myLakes';
 
 async function loadCustomLakes() {
   let lakes = [];
@@ -1426,7 +1426,7 @@ function resetAll() {
 <!-- ADMIN PANEL -->
 <div id="admin-panel" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:999;overflow-y:auto;padding:24px 16px 60px;">
   <div style="max-width:480px;margin:0 auto;">
-    <div class="admin-header">⚙️ Cast Smart Admin</div>
+    <div class="admin-header">⚙️ NovaCast Admin</div>
     <div class="admin-sub">Hidden panel — only you can see this</div>
     <div id="admin-login-section">
       <div class="admin-field"><label>Password</label>
@@ -1482,7 +1482,7 @@ function resetAll() {
 <script>
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
 const ADMIN_PW = 'castmaster2025'; // Change this to whatever password you want
-const ADMIN_LAKES_KEY = 'castSmart_adminLakes';
+const ADMIN_LAKES_KEY = 'novacast_adminLakes';
 
 function openAdmin() {
   document.getElementById('admin-panel').style.display = 'block';
