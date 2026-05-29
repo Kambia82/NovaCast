@@ -32,7 +32,7 @@ To use it, add these GitHub Secrets to your repository settings:
 
 - `FIREBASE_TOKEN`
 - `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+- `VITE_SUPABASE_ANON_KEY` 
 
 When you push to `main`, GitHub Actions will:
 
