@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "novacast-26e4c",
     "public": "dist",
     "ignore": [
       "firebase.json",
@@ -13,4 +14,4 @@
       }
     ]
   }
-} 
+}
