@@ -236,7 +236,7 @@ export default function App() {
       {nearbyError && <div className="text-[#e05c5c] text-xs mb-3">{nearbyError}</div>}
 
       <div className="flex gap-2 mb-3">
-        <input type="text" value={zipCode} onChange={e => setZipCode(e.target.value)} placeholder="Zip code" maxLength={10} className="flex-1 bg-[#152a4f] border border-[#1e3a5f] rounded-xl text-[#e8f0f8] text-sm px-4 py-3.5 outline-none focus:border-[#00e5c7]" onKeyDown={e => e.key === 'Enter' && searchByZip()} />
+       <input type="text" value={zipCode} onChange={e => setZipCode(e.target.value)} placeholder="Zip code" maxLength={10} className="flex-1 bg-[#152a4f] border border-[#1e3a5f] rounded-xl text-[#e8f0f8] text-sm px-4 py-3.5 outline-none focus:border-[#00e5c7]" onKeyDown={e => e.key === 'Enter' && searchByZip()} /> 
         <button onClick={searchByZip} disabled={zipLoading} className="px-5 py-3.5 bg-[#152a4f] border border-[#1e3a5f] rounded-xl text-[#00e5c7] cursor-pointer hover:bg-[rgba(0,229,199,0.1)] disabled:opacity-50 transition-all"><Search className="w-5 h-5" /></button>
       </div>
       {zipError && <div className="text-[#e05c5c] text-xs mb-3">{zipError}</div>}
