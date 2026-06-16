@@ -389,7 +389,7 @@ const STORES = [
 
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 
-export default function NovaCastReference({ onClose }) {
+export default function NovaCastReference({ onClose, inline = false }) {
   const [activeTab, setActiveTab] = useState('reels');
   const [expanded, setExpanded] = useState(null);
   const [activeFishTab, setActiveFishTab] = useState('bass');
@@ -697,35 +697,40 @@ export default function NovaCastReference({ onClose }) {
   );
 
   // ── MAIN RENDER ───────────────────────────────────────────────────────────
+  const inner = (
+    <div style={{ maxWidth: '480px', margin: '0 auto', padding: inline ? '16px 16px 100px' : '0 16px 100px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: inline ? '8px' : '24px', paddingBottom: '16px', borderBottom: '1px solid #1A3346', marginBottom: '16px' }}>
+        <div>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '26px', letterSpacing: '2px', color: '#BAE8FF' }}>Reference Guide</div>
+          <div style={{ fontSize: '12px', color: '#4A6878' }}>Everything you need to know — no assumed experience</div>
+        </div>
+        {onClose && !inline && (
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#4A6878', cursor: 'pointer' }}>
+            <X size={22} />
+          </button>
+        )}
+      </div>
+
+      {/* Main tabs */}
+      <TabBar tabs={TABS} active={activeTab} onSelect={setActiveTab} />
+
+      {activeTab === 'reels'     && <ReelsTab />}
+      {activeTab === 'lures'     && <LuresTab />}
+      {activeTab === 'knots'     && <KnotsTab />}
+      {activeTab === 'inventory' && <InventoryTab />}
+      {activeTab === 'stores'    && <StoresTab />}
+    </div>
+  );
+
+  if (inline) return inner;
+
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(10,22,40,0.97)', zIndex: 50,
-      overflowY: 'auto', fontFamily: "'DM Sans', sans-serif", color: '#e8f0f8',
+      position: 'fixed', inset: 0, background: 'rgba(6,11,16,0.98)', zIndex: 50,
+      overflowY: 'auto', fontFamily: "'DM Sans', sans-serif", color: '#C8E4F0',
     }}>
-      <div style={{ maxWidth: '480px', margin: '0 auto', padding: '0 16px 100px' }}>
-
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '24px', paddingBottom: '16px', borderBottom: '1px solid #1e3a5f', marginBottom: '16px' }}>
-          <div>
-            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '28px', letterSpacing: '2px', color: '#00e5c7' }}>Reference Guide</div>
-            <div style={{ fontSize: '12px', color: '#7a8ea6' }}>Everything you need to know — no assumed experience</div>
-          </div>
-          {onClose && (
-            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#7a8ea6', cursor: 'pointer' }}>
-              <X size={22} />
-            </button>
-          )}
-        </div>
-
-        {/* Main tabs */}
-        <TabBar tabs={TABS} active={activeTab} onSelect={setActiveTab} />
-
-        {activeTab === 'reels'     && <ReelsTab />}
-        {activeTab === 'lures'     && <LuresTab />}
-        {activeTab === 'knots'     && <KnotsTab />}
-        {activeTab === 'inventory' && <InventoryTab />}
-        {activeTab === 'stores'    && <StoresTab />}
-      </div>
+      {inner}
     </div>
   );
 }

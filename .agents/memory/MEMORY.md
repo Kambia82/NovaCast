@@ -1,0 +1,1 @@
+- [Novacast Design System](novacast-design-system.md) — nova (#BAE8FF pale blue-white) + tropical dark bg (#060b10); lure colors take spotlight; see token table for all replacements.
