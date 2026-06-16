@@ -434,11 +434,6 @@ export default function App() {
   // ── MAIN RENDER ────────────────────────────────────────────────────
   return (
     <div className="relative z-10 max-w-[480px] mx-auto px-4">
-      <header className="pt-7 pb-5 text-center">
-        <div className="font-display text-[42px] tracking-[4px] text-[#00e5c7] leading-none">Novacast</div>
-        <div className="text-xs text-[#c0c8d8] tracking-[3px] uppercase mt-1">Your Fishing Mentor</div>
-      </header>
-
       {view === 'welcome' && renderWelcome()}
       
       {view === 'wizard' && (
