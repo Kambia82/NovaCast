@@ -5,27 +5,20 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import autoprefixer from "autoprefixer";
 import tailwindcss from "tailwindcss";
 
+// Falls back to sensible defaults so the app runs the same on any host
+// (local, Firebase, Netlify, Replit, ...) — a platform only needs to set
+// PORT/BASE_PATH if it wants something other than these.
+const DEFAULT_PORT = 8080;
+const DEFAULT_BASE_PATH = "/";
+
 const rawPort = process.env.PORT;
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
+const port = rawPort ? Number(rawPort) : DEFAULT_PORT;
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-const basePath = process.env.BASE_PATH;
-
-if (!basePath) {
-  throw new Error(
-    "BASE_PATH environment variable is required but was not provided.",
-  );
-}
+const basePath = process.env.BASE_PATH || DEFAULT_BASE_PATH;
 
 export default defineConfig({
   base: basePath,
