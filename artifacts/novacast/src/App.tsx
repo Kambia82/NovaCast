@@ -72,6 +72,7 @@ export default function App() {
   const [nearbyWater, setNearbyWater] = useState<NearbyWaterBody[]>([]);
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
   const [zipCode, setZipCode] = useState('');
   const [zipLoading, setZipLoading] = useState(false);
   const [zipError, setZipError] = useState('');
@@ -139,8 +140,8 @@ export default function App() {
         setNearbyWater(withDist);
       } catch { setNearbyError('Couldn\'t fetch nearby water. Try again.'); }
       setNearbyLoading(false);
-      setView('wizard');
-    }, () => { setNearbyError('Location permission denied.'); setNearbyLoading(false); setView('wizard'); });
+      setHasSearched(true);
+    }, () => { setNearbyError('Location permission denied.'); setNearbyLoading(false); setHasSearched(true); });
   }, []);
 
   const searchByZip = useCallback(async () => {
@@ -170,7 +171,7 @@ export default function App() {
       const latNum = parseFloat(lat); const lonNum = parseFloat(lon);
       const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDist(latNum, lonNum, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
       setNearbyWater(withDist);
-      setView('wizard');
+      setHasSearched(true);
     } catch { setZipError('Search failed. Try again.'); }
     setZipLoading(false);
   }, [zipCode]);
@@ -261,6 +262,32 @@ export default function App() {
         </button>
       </div>
       {zipError && <div className="text-[#FC8181] text-xs mb-3">{zipError}</div>}
+
+      {nearbyWater.length > 0 && (
+        <div className="text-left mb-6">
+          <div className="text-[10px] uppercase tracking-[2px] text-[#4A6878] mb-3 font-semibold">{nearbyWater.length} spots near you</div>
+          {nearbyWater.map((w, i) => (
+            <button
+              key={i}
+              onClick={() => {
+                setState(prev => ({ ...prev, loc: null, locName: w.name, locLat: w.lat, locLon: w.lon }));
+                setView('workspace');
+                setActiveTab('recommendations');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="w-full text-left bg-[#0c1822] border border-[#1A3346] rounded-xl p-3 mb-2 last:mb-0 cursor-pointer hover:border-[rgba(186,232,255,0.3)] transition-all"
+            >
+              <div className="font-semibold text-sm text-[#C8E4F0] mb-1">{w.name}</div>
+              <div className="text-xs text-[#4A6878] flex items-center gap-1.5">
+                <MapPin className="w-3 h-3" /> {w.type} · {w.distance.toFixed(1)} mi away
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      {hasSearched && !nearbyLoading && !zipLoading && !nearbyError && !zipError && nearbyWater.length === 0 && (
+        <div className="text-[#4A6878] text-xs mb-3">No known water found nearby. Try a different zip or browse STL lakes below.</div>
+      )}
 
       <div className="text-[10px] text-[#4A6878] mb-3 tracking-wider">— or —</div>
 
