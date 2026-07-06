@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import NovaCastWizard from './NovaCastWizard';
 import NovaCastReference from './NovaCastReference';
 import NovaCastTacklebox from './NovaCastTacklebox';
+import ConditionsPanel from './ConditionsPanel';
 
 import { supabase } from './lib/supabase';
 import {
@@ -40,7 +41,8 @@ interface NearbyWaterBody { name: string; type: string; distance: number; lat: n
 interface WizardState {
   loc: string | null; locName: string | null; locLat: number | null; locLon: number | null;
   time: string | null; sky: string | null; water: string | null; temp: string | null;
-  wind: string | null; pressure: string | null; fish: string | null; recentWeather: string[];
+  wind: string | null; pressure: string | null; fish: string | null; reel: string | null;
+  recentWeather: string[];
 }
 
 type AppView = 'discovery' | 'wizard' | 'workspace';
@@ -63,7 +65,7 @@ export default function App() {
   const [view, setView] = useState<AppView>('discovery');
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('recommendations');
   const [state, setState] = useState<WizardState>({
-    loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null,
+    loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null, reel: null,
     water: null, temp: null, wind: null, pressure: null, fish: null, recentWeather: [],
   });
   const [waterBodies, setWaterBodies] = useState<WaterBodyRow[]>([]);
@@ -84,12 +86,18 @@ export default function App() {
     try { const s = localStorage.getItem('novacast_tacklebox'); return s ? JSON.parse(s) : { lures: [], colors: [], walmart: [] }; } catch { return { lures: [], colors: [], walmart: [] }; }
   });
   const [tooltipOpen, setTooltipOpen] = useState<string | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherLoaded, setWeatherLoaded] = useState('');
 
   useEffect(() => {
     loadWaterBodies(); loadCustomLakes(); loadAdminLakes();
     if (window.location.hash === '#admin') setShowAdmin(true);
     const handler = () => { if (window.location.hash === '#admin') setShowAdmin(true); };
     window.addEventListener('hashchange', handler);
+    if (window.location.hash === '#workspace') {
+      setState(prev => ({ ...prev, locName: 'Meramec River', fish: 'bass', time: 'morning', sky: 'partly', water: 'stained', temp: 'warm' }));
+      setView('workspace');
+    }
     return () => window.removeEventListener('hashchange', handler);
   }, []);
 
@@ -107,11 +115,43 @@ export default function App() {
   const loadAdminLakes = async () => { const { data } = await supabase.from('admin_lakes').select('*').order('created_at', { ascending: false }); if (data) setAdminLakes(data as AdminLakeRow[]); };
 
   const resetAll = () => {
-    setState({ loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null, water: null, temp: null, wind: null, pressure: null, fish: null, recentWeather: [] });
+    setState({ loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null, water: null, temp: null, wind: null, pressure: null, fish: null, reel: null, recentWeather: [] });
     setView('discovery');
     setActiveTab('recommendations');
+    setWeatherLoaded('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  const setCondition = useCallback((key: string, value: string | null) => {
+    setState(prev => ({ ...prev, [key]: value } as WizardState));
+  }, []);
+
+  const loadWeather = useCallback(() => {
+    if (!navigator.geolocation) { setWeatherLoaded('Location not available.'); return; }
+    setWeatherLoading(true); setWeatherLoaded('');
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&appid=9e751a40a370416832496e123e1098cc&units=imperial`);
+        const data = await res.json();
+        if (data.cod !== 200) throw new Error(data.message);
+        const tempF = Math.round(data.main.temp), windMph = Math.round(data.wind.speed);
+        const cloudPct = data.clouds.all, wId = data.weather[0].id, pressureHpa = data.main.pressure;
+        let sky: string, temp: string, wind: string, pressure: string;
+        if (wId >= 200 && wId < 600) sky = 'rainy';
+        else if (cloudPct >= 80) sky = 'overcast';
+        else if (cloudPct >= 30) sky = 'partly';
+        else sky = 'sunny';
+        temp = tempF < 45 ? 'cold' : tempF < 60 ? 'cool' : 'warm';
+        wind = windMph <= 5 ? 'calm' : windMph <= 14 ? 'light' : 'strong';
+        pressure = pressureHpa < 1009 ? 'steady_low' : pressureHpa < 1013 ? 'falling' : 'steady_high';
+        setState(s => ({ ...s, sky, temp, wind, pressure }));
+        const skyL: Record<string,string> = { sunny: 'Sunny', partly: 'Partly Cloudy', overcast: 'Overcast', rainy: 'Rainy' };
+        const windL: Record<string,string> = { calm: 'Calm', light: 'Light Breeze', strong: 'Windy' };
+        setWeatherLoaded(`${data.name} — ${tempF}°F · ${skyL[sky]} · ${windL[wind]}`);
+      } catch { setWeatherLoaded("Couldn't load weather. Fill in manually."); }
+      setWeatherLoading(false);
+    }, () => { setWeatherLoaded('Location permission denied.'); setWeatherLoading(false); });
+  }, []);
 
   const startWithGPS = useCallback(() => {
     if (!navigator.geolocation) { setNearbyError('Location not available on this device.'); return; }
@@ -502,7 +542,27 @@ export default function App() {
         </div>
 
         {/* Tab content */}
-        {activeTab === 'recommendations' && renderRecommendations()}
+        {activeTab === 'recommendations' && (
+          <div>
+            <ConditionsPanel
+              fish={state.fish}
+              reel={state.reel}
+              time={state.time}
+              sky={state.sky}
+              water={state.water}
+              temp={state.temp}
+              wind={state.wind}
+              pressure={state.pressure}
+              onChange={setCondition}
+              onAutoFillWeather={loadWeather}
+              weatherLoading={weatherLoading}
+              weatherLoaded={weatherLoaded}
+            />
+            <div className="pt-4">
+              {renderRecommendations()}
+            </div>
+          </div>
+        )}
         {activeTab === 'learn' && (
           <div className="-mx-4">
             <NovaCastReference onClose={() => setActiveTab('recommendations')} inline />
@@ -510,7 +570,7 @@ export default function App() {
         )}
         {activeTab === 'tacklebox' && (
           <div className="-mx-4">
-            <NovaCastTacklebox onBack={() => setActiveTab('recommendations')} externalTacklebox={tacklebox} onToggleSaved={() => {}} />
+            <NovaCastTacklebox onBack={() => setActiveTab('recommendations')} externalTacklebox={tacklebox} onToggleSaved={toggleTacklebox} />
           </div>
         )}
       </div>
@@ -554,7 +614,7 @@ export default function App() {
 
       {view === 'wizard' && (
         <NovaCastWizard
-          onComplete={(wizardState) => {
+          onComplete={(wizardState: WizardState) => {
             setState(wizardState);
             setView('workspace');
             setActiveTab('recommendations');
