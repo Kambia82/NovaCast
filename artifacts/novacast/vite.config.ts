@@ -4,6 +4,7 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import autoprefixer from "autoprefixer";
 import tailwindcss from "tailwindcss";
+import { qrcode } from "vite-plugin-qrcode";
 
 // Falls back to sensible defaults so the app runs the same on any host
 // (local, Firebase, Netlify, Replit, ...) — a platform only needs to set
@@ -25,19 +26,7 @@ export default defineConfig({
   plugins: [
     react(),
     runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
+    qrcode(), // prints a scannable QR code for the LAN URL on `pnpm dev` — no-op outside dev (apply: 'serve')
   ],
   css: {
     postcss: {
