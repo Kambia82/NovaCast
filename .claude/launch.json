@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "novacast",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@workspace/novacast", "run", "dev"],
+      "port": 8080
+    },
+    {
+      "name": "api-server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@workspace/api-server", "run", "dev"],
+      "port": 8081
+    },
+    {
+      "name": "mockup-sandbox",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@workspace/mockup-sandbox", "run", "dev"],
+      "port": 8082,
+      "env": {
+        "BASE_PATH": "/"
+      }
+    }
+  ]
+}
