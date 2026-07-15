@@ -67,9 +67,11 @@ catalog:
 autoInstallPeers: false
 
 onlyBuiltDependencies:
+  - '@firebase/util'
   - '@swc/core'
   - esbuild
   - msw
+  - protobufjs
   - unrs-resolver
 
 overrides:
@@ -148,4 +150,6 @@ overrides:
   esbuild: "0.27.3"
 
 allowBuilds:
+  '@firebase/util': true
   esbuild: true
+  protobufjs: true

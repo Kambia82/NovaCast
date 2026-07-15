@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /waterBodies/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /adminLakes/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /customLakes/{docId} {
+      allow read, write: if false;
+    }
+  }
+}
