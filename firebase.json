@@ -1,0 +1,17 @@
+{
+  "hosting": {
+    "site": "novacast-26e4c",
+    "public": "artifacts/novacast/dist/public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
