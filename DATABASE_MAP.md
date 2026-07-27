@@ -1,5 +1,13 @@
 # Novacast — Database Map
 
+> **ARCHIVED — June 15, 2026 snapshot.** Describes the pre-migration Supabase
+> schema only. The live app (`artifacts/novacast/`) still queries Supabase
+> directly for `water_bodies` / `custom_lakes` / `admin_lakes` (unchanged from
+> what's documented below), but a parallel, unwired Firestore data-access layer
+> now also exists (`src/services/database/`, `src/lib/firebase.ts`,
+> `firestore.rules`). See **`ARCHITECTURE.md`** for the current, accurate
+> picture of both. Kept here for historical reference only.
+
 > Source: `.migration-backup/supabase/migrations/20260505114415_create_water_bodies_and_lakes.sql`  
 > Database: Supabase (hosted PostgreSQL)  
 > Auth: Supabase Auth (schema present, no UI built)

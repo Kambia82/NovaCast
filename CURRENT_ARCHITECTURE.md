@@ -1,5 +1,12 @@
 # Novacast — Current Architecture
 
+> **ARCHIVED — June 15, 2026 snapshot.** This document describes the pre-migration
+> `.migration-backup/` codebase (Supabase-only, no Discovery/Workspace UI). The
+> live app has since moved to `artifacts/novacast/` and gained the Discovery →
+> Wizard/GPS → Lake Workspace flow described in `DESIGN_PROPOSAL.md`. For the
+> current architecture, see **`ARCHITECTURE.md`**. Kept here for historical
+> reference only — do not treat anything below as describing the current app.
+
 > Audit date: June 15, 2026  
 > Source tree: `.migration-backup/`  
 > Status: Migrated to Replit pnpm workspace at `artifacts/novacast/`
