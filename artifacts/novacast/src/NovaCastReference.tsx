@@ -389,13 +389,18 @@ const STORES = [
 
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 
-export default function NovaCastReference({ onClose, inline = false }) {
-  const [activeTab, setActiveTab] = useState('reels');
-  const [expanded, setExpanded] = useState(null);
-  const [activeFishTab, setActiveFishTab] = useState('bass');
-  const [activeInventoryTab, setActiveInventoryTab] = useState('hardware');
+interface NovaCastReferenceProps {
+  onClose: () => void;
+  inline?: boolean;
+}
 
-  const toggle = (key) => setExpanded(expanded === key ? null : key);
+export default function NovaCastReference({ onClose, inline = false }: NovaCastReferenceProps) {
+  const [activeTab, setActiveTab] = useState('reels');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [activeFishTab, setActiveFishTab] = useState<keyof typeof LURES_BY_SPECIES>('bass');
+  const [activeInventoryTab, setActiveInventoryTab] = useState<keyof typeof BEGINNER_INVENTORY>('hardware');
+
+  const toggle = (key: string) => setExpanded(expanded === key ? null : key);
 
   const TABS = [
     { key: 'reels',     label: '🎣 Reels' },
@@ -411,28 +416,34 @@ export default function NovaCastReference({ onClose, inline = false }) {
     { key: 'catfish',    label: '🐱 Catfish' },
     { key: 'bluegill',   label: '🫐 Bluegill' },
     { key: 'smallmouth', label: '🏔️ Smallmouth' },
-  ];
+  ] as const;
 
   const INV_TABS = [
     { key: 'hardware',     label: 'Hooks & Weights' },
     { key: 'softPlastics', label: 'Soft Plastics' },
     { key: 'hardBaits',    label: 'Hard Baits' },
     { key: 'terminal',     label: 'Line & Tools' },
-  ];
+  ] as const;
 
-  const DiffBadge = ({ label, color }) => (
+  const DiffBadge = ({ label, color }: { label: string; color: string }) => (
     <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '999px', background: `${color}22`, color, fontWeight: '600', border: `1px solid ${color}44` }}>
       {label}
     </span>
   );
 
-  const SectionHeader = ({ label }) => (
+  const SectionHeader = ({ label }: { label: string }) => (
     <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', color: '#7a8ea6', fontWeight: '600', marginBottom: '10px', marginTop: '4px' }}>
       {label}
     </div>
   );
 
-  const TabBar = ({ tabs, active, onSelect, small = false }) => (
+  function TabBar<T extends string>({ tabs, active, onSelect, small = false }: {
+    tabs: readonly { key: T; label: string }[];
+    active: T;
+    onSelect: (key: T) => void;
+    small?: boolean;
+  }) {
+    return (
     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
       {tabs.map(t => (
         <button
@@ -454,7 +465,8 @@ export default function NovaCastReference({ onClose, inline = false }) {
         </button>
       ))}
     </div>
-  );
+    );
+  }
 
   // ── REELS TAB ─────────────────────────────────────────────────────────────
   const ReelsTab = () => (
@@ -531,7 +543,7 @@ export default function NovaCastReference({ onClose, inline = false }) {
     const lures = LURES_BY_SPECIES[activeFishTab] || [];
     return (
       <div>
-        <TabBar tabs={FISH_TABS} active={activeFishTab} onSelect={setActiveFishTab} small />
+        <TabBar<keyof typeof LURES_BY_SPECIES> tabs={FISH_TABS} active={activeFishTab} onSelect={setActiveFishTab} small />
         {lures.map((l, i) => (
           <div key={l.name} style={{ background: '#0f1f3d', border: '1px solid #1e3a5f', borderRadius: '14px', padding: '16px', marginBottom: '10px' }}>
             <div onClick={() => toggle(`lure-${activeFishTab}-${i}`)} style={{ cursor: 'pointer' }}>
@@ -651,7 +663,7 @@ export default function NovaCastReference({ onClose, inline = false }) {
         <div style={{ fontSize: '13px', color: '#7a8ea6', marginBottom: '12px', lineHeight: '1.6' }}>
           Everything you need to start fishing seriously — no fluff, no duplicates. Total cost if you bought everything: roughly $80–120. You can spread it out.
         </div>
-        <TabBar tabs={INV_TABS} active={activeInventoryTab} onSelect={setActiveInventoryTab} small />
+        <TabBar<keyof typeof BEGINNER_INVENTORY> tabs={INV_TABS} active={activeInventoryTab} onSelect={setActiveInventoryTab} small />
         {items.map((item, i) => (
           <div key={i} style={{ background: '#0f1f3d', border: '1px solid #1e3a5f', borderRadius: '12px', padding: '12px 14px', marginBottom: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>

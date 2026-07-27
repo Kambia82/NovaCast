@@ -1,8 +1,8 @@
 import { getDocs, type DocumentData, type Query } from 'firebase/firestore';
 
-// Firestore denies reads/writes on some collections for now (see firestore.rules) —
-// treat permission-denied the same way broken Supabase RLS used to: an empty list,
-// not a crash.
+// Firestore denies writes (and, for customLakes, unauthenticated reads) on
+// some collections for now (see firestore.rules) — treat permission-denied
+// as an empty list, not a crash.
 export async function safeGetDocs(q: Query<DocumentData>) {
   try {
     return await getDocs(q);
