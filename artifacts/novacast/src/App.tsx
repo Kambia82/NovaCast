@@ -5,6 +5,7 @@ import NovaCastTacklebox from './NovaCastTacklebox';
 import ConditionsPanel from './ConditionsPanel';
 
 import { supabase } from './lib/supabase';
+import { calcDistance } from './lib/geo';
 import {
   getFishMovement,
   applyRecentWeatherToDepth,
@@ -176,9 +177,7 @@ export default function App() {
             if (firstNode) waterBodiesList.push({ name, lat: firstNode.lat, lon: firstNode.lon, type: waterType });
           }
         });
-        const toRad = (d: number) => d * Math.PI / 180;
-        const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => { const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2; return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); };
-        const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDist(latitude, longitude, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
+        const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDistance(latitude, longitude, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
         setNearbyWater(withDist);
       } catch { setNearbyError('Couldn\'t fetch nearby water. Try again.'); }
       setNearbyLoading(false);
@@ -208,10 +207,8 @@ export default function App() {
           if (firstNode) waterBodiesList.push({ name, lat: firstNode.lat, lon: firstNode.lon, type: waterType });
         }
       });
-      const toRad = (d: number) => d * Math.PI / 180;
-      const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => { const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2; return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); };
       const latNum = parseFloat(lat); const lonNum = parseFloat(lon);
-      const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDist(latNum, lonNum, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
+      const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDistance(latNum, lonNum, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
       setNearbyWater(withDist);
       setHasSearched(true);
     } catch { setZipError('Search failed. Try again.'); }
