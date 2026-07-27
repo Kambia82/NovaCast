@@ -8,11 +8,12 @@ architectural choice in `DECISIONS.md`.
 ## Architect
 
 **Scope:** Whole-repository coherence. Owns `ARCHITECTURE.md`,
-`DECISIONS.md`, `TECH_DEBT.md`, `ROADMAP.md`. Decides which of the parallel
-backend directions (Supabase / Firestore / Postgres+Drizzle, see ADR-003)
-gets finished, and drives dead-code removal once a direction is chosen.
-Reviews changes that cross package boundaries (e.g. anything touching both
-`artifacts/novacast` and `lib/db`).
+`DECISIONS.md`, `TECH_DEBT.md`, `ROADMAP.md`. Firebase is the decided
+canonical backend (ADR-008) — this agent's job now is verifying that
+decision is fully executed (Firestore data actually seeded, `functions/`
+actually deployed — both open per `TECH_DEBT.md` #1a/#1b) and deciding the
+fate of the still-unrelated `lib/db`/`artifacts/api-server` Postgres/Drizzle
+scaffold. Reviews changes that cross package boundaries.
 
 **Out of scope:** Redesigning the product vision (`VISION.md`) without an
 explicit compelling reason recorded as an ADR. Making UI/visual decisions —
@@ -32,27 +33,33 @@ unilaterally (that's Architect + Firebase/Backend, coordinated via an ADR).
 
 ## Backend
 
-**Scope:** `artifacts/api-server/`, `lib/db/`, `lib/api-spec/`,
-`lib/api-zod/`, `lib/api-client-react/`. Currently a skeleton (health-check
-endpoint only, empty Drizzle schema). Owns deciding, together with Architect,
-whether this becomes the real server-side layer (e.g. for admin auth, per
-`ROADMAP.md`) or is retired if the product stays client-direct-to-BaaS.
+**Scope:** `functions/` (Cloud Functions — the real backend-logic layer per
+ADR-009) is the primary home for new server-side work. `artifacts/api-server/`,
+`lib/db/`, `lib/api-spec/`, `lib/api-zod/`, `lib/api-client-react/` are a
+separate, still-unbuilt Postgres/Drizzle/Express scaffold (health-check
+endpoint only, empty schema) with no callers and no confirmed future — don't
+build it out without an Architect-level decision that Cloud Functions can't
+cover the need.
 
-**Out of scope:** Adding schema/endpoints "just in case" without a concrete
-caller — this scaffold already exists unused once (see ADR-003's sibling
-problem); don't repeat the pattern here.
+**Out of scope:** Adding schema/endpoints to the Postgres/Drizzle scaffold
+"just in case" without a concrete caller and an Architect decision that it's
+needed alongside `functions/`.
 
 ## Firebase
 
 **Scope:** `firebase.json`, `.firebaserc`, `firestore.rules`,
 `firestore.indexes.json`, `src/lib/firebase.ts`,
-`src/services/database/*.ts`, the Firebase Hosting deploy step in
-`.github/workflows/firebase-hosting.yml`. Owns finishing or retiring the
-Firestore migration (ADR-003) — including deciding how `customLakes` gets a
-real auth story, since `firestore.rules` denies it outright today.
+`src/services/database/*.ts`, `functions/`, the Firebase Hosting deploy step
+in `.github/workflows/firebase-hosting.yml`. Firebase is canonical (ADR-008)
+— this agent owns keeping Firestore rules/schema, Firebase Auth, and Cloud
+Functions consistent with what `App.tsx` actually calls, and owns the two
+open verification items in `TECH_DEBT.md` (#1a: is `waters`/`adminWaters`
+actually seeded; #1b: is `functions/` actually deployed) as soon as project
+credentials are available to whoever picks this up. Also owns building out
+Firebase Storage when a feature needs file uploads (none does yet).
 
-**Out of scope:** Touching Supabase code (`src/lib/supabase.ts`) except as
-part of an explicit, ADR-recorded cutover away from it.
+**Out of scope:** Reintroducing Supabase or any other BaaS without a new
+ADR explicitly superseding ADR-008.
 
 ## UI/UX
 
@@ -71,8 +78,9 @@ system or token set instead of extending the existing one.
 **Scope:** There is currently no test suite anywhere in the repository —
 this is this agent's first and standing responsibility to fix, starting
 with `data/recommendations.ts` (pure functions, cheapest to test) before UI
-or integration tests. Owns adding a typecheck (and eventually test) gate to
-CI before deploy (`ROADMAP.md` Immediate).
+or integration tests. A CI typecheck gate is now in place
+(`.github/workflows/firebase-hosting.yml`); owns adding a real test gate
+alongside it once a suite exists.
 
 **Out of scope:** Blocking merges on test coverage that doesn't exist yet —
 add tests incrementally, don't demand 100% coverage as a precondition for
@@ -107,8 +115,7 @@ bundle since nothing imports it, but the ~25 matching Radix UI packages,
 `react-hook-form`, `cmdk`, `embla-carousel-react`, `recharts`, `sonner`,
 `vaul`, and similar `devDependencies` still cost install time and repo
 weight for code that does nothing. Also owns runtime performance of the
-recommendation engine and Firestore/Supabase queries once a backend is
-finalized (`DECISIONS.md` ADR-003).
+recommendation engine and Firestore queries.
 
 **Out of scope:** Premature optimization of `data/recommendations.ts` — it's
 already pure and fast; the actual cost centers are network calls (Overpass,

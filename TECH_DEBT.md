@@ -6,15 +6,33 @@ each is scheduled and `DECISIONS.md` for ADRs on the ones already acted on.
 
 ## P0 — Architectural ambiguity / real risk
 
-### 1. Three parallel backend implementations, one actually used
-`src/lib/supabase.ts` is what `App.tsx` calls for every read/write. A
-complete, separate Firestore data-access layer
-(`src/services/database/{waters,customLakes,admin,shared}.ts`,
-`src/lib/firebase.ts`, `firestore.rules`) exists with zero callers. A third,
-unbuilt Postgres+Drizzle+Express scaffold (`lib/db`, `artifacts/api-server`)
-has an empty schema and one health-check route. See `ARCHITECTURE.md` §3 and
-`DECISIONS.md` ADR-003. **Risk:** anyone reading only the Firestore layer or
-only `firestore.rules` will misjudge what the live app actually does.
+### 1. Three parallel backend implementations, one actually used — **resolved in this audit**
+`src/lib/supabase.ts` used to be what `App.tsx` called for every
+read/write, alongside a complete-but-unwired Firestore layer. Firebase was
+declared the canonical backend; `App.tsx` now calls Firestore exclusively
+and Supabase has been deleted from the repository (`DECISIONS.md` ADR-008).
+The unbuilt Postgres+Drizzle+Express scaffold (`lib/db`,
+`artifacts/api-server`) remains, unrelated to the Firebase stack — see
+`ARCHITECTURE.md` §7 item 5 for its open status. Listed here for the
+historical record; the Supabase/Firestore ambiguity itself is no longer
+outstanding.
+
+### 1a. Firestore data seeding is unverified — **open blocker**
+This audit had no Firebase CLI or project credentials available, so whether
+the live `novacast-26e4c` project's `waters`/`adminWaters` Firestore
+collections actually contain the curated lake data (previously in
+Supabase's `water_bodies`/`admin_lakes` tables) could not be checked. If
+they're empty, the app will show zero water bodies after this cutover
+deploys. **Action needed from someone with project access:** check the
+Firestore console, and if empty, migrate/import the data before or
+immediately after this deploys. See `DECISIONS.md` ADR-008.
+
+### 1b. `functions/` is unverified against a live project — **open blocker**
+The `claimAdmin` Cloud Function (`functions/src/index.ts`) typechecks
+cleanly but has never been deployed or exercised against a real Firebase
+project from this environment. Before the admin panel works in production:
+run `firebase functions:secrets:set ADMIN_PASSWORD` once, then
+`firebase deploy --only functions`. See `DECISIONS.md` ADR-009.
 
 ### 2. `~5,800 lines` of unused shadcn/ui scaffolding
 `src/components/ui/` (54 files), `src/hooks/use-toast.ts`, and
@@ -23,19 +41,25 @@ verified by grep against every real entry point. Leftover from the original
 shadcn/Replit starter template; NovaCast's actual screens are hand-built
 Tailwind. See `ARCHITECTURE.md` §7 item 8.
 
-### 3. `custom_lakes`/`customLakes` is unreachable in both backends
-Per the archived `DATABASE_MAP.md`, Supabase RLS on `custom_lakes` requires
-`auth.uid()`, and the app never calls any Supabase auth method. Per
-`firestore.rules`, `customLakes` denies both read and write outright. The
-custom-lake feature (add your own spot) has had no working backend path
-through either migration.
+### 3. `custom_lakes`/`customLakes` — reads fixed, writes still have no feature
+Per the archived `DATABASE_MAP.md`, Supabase RLS on `custom_lakes` required
+`auth.uid()`, which the app never established, so it was permanently empty.
+Firestore rules now allow `customLakes` reads for any authenticated
+(including anonymous) session (`DECISIONS.md` ADR-008) — the first time
+this collection has been readable in either backend. **Writes remain
+unbuilt**: `App.tsx` still has no "add a custom lake" UI or handler at all
+(confirmed by reading the full file — `adminForm`-style state doesn't even
+exist for this feature), so the collection has no writer regardless of
+rules. Building that UI + an ownership-scoped rule (`resource.data.userId
+== request.auth.uid`) is tracked in `ROADMAP.md`.
 
-### 4. No CI typecheck/test gate before deploy
-`.github/workflows/firebase-hosting.yml` runs `pnpm build` inside
-`artifacts/novacast`, which is `vite build` only (verified in
-`package.json`) — no `tsc`, no tests. A type error can ship straight to
-Firebase Hosting. No test suite exists to gate on yet either (verified: no
-`*.test.*`/`*.spec.*` files, no test runner in any `package.json`).
+### 4. No CI typecheck gate before deploy — **fixed in this audit**
+`.github/workflows/firebase-hosting.yml` used to run `pnpm build` inside
+`artifacts/novacast` (`vite build` only, no `tsc`) with nothing catching
+type errors before they shipped. A "Typecheck" step now runs
+`pnpm run typecheck` before the build step, and the pre-existing errors
+that would have made this gate immediately fail have been fixed (see #13).
+No test suite exists to gate on yet — that's still open.
 
 ## P1 — Duplicated logic that will drift
 
@@ -66,14 +90,14 @@ here for the historical record; no longer outstanding.
 
 ## P2 — Known, deliberately deferred
 
-### 9. Hardcoded admin password
-`App.tsx`: `if (adminPw === 'castmaster2025')`. Client-side only, visible in
-the shipped bundle, no server-side backing. Not fixed with an env-var swap
-in this audit because no `VITE_ADMIN_PASSWORD` secret is provisioned in CI
-and doing so with no fallback would silently disable the admin panel in
-every deployed build — see `DECISIONS.md` ADR-007. Real fix is a
-server-side check (candidate home: `artifacts/api-server`), tracked in
-`ROADMAP.md`.
+### 9. Hardcoded admin password — **fixed in this audit**
+`App.tsx` used to compare `adminPw` against a literal `'castmaster2025'`
+string client-side, with no server-side backing at all. Replaced with a
+`claimAdmin` Cloud Function that checks the password server-side (Secret
+Manager) and grants a Firebase Auth custom claim that `firestore.rules`
+enforces (`DECISIONS.md` ADR-009, supersedes ADR-007). **Not yet verified
+against a live project** — see #1b above; the code path is real but
+undeployed.
 
 ### 10. OpenWeatherMap key was hardcoded twice, fixed once, now fixed in both
 `App.tsx`'s copy was fixed to read `VITE_OPENWEATHER_API_KEY` in commit
@@ -97,13 +121,18 @@ and never removed until this audit. Removed — see `DECISIONS.md` ADR-006.
 `/icon-512.png`; neither file exists in `public/` (only `favicon.svg`,
 `manifest.json`, `robots.txt`, `sw.js` are present).
 
-### 13. Pre-existing TypeScript errors
-`pnpm --filter novacast run typecheck` currently fails with implicit-`any`
+### 13. Pre-existing TypeScript errors — **fixed in this audit**
+`pnpm --filter novacast run typecheck` used to fail with implicit-`any`
 errors in `NovaCastReference.tsx` (untyped destructured params, untyped
 object-index lookups) and a warning that `NovaCastWizard.jsx` has no type
-declarations (it's still `.jsx`, not `.tsx` — `REFACTOR_RECOMMENDATIONS.md`
-1-A recommended converting it; never done). None of these are related to
-changes made in this audit — verified by running typecheck before and after.
+declarations. Fixed: typed `NovaCastReference.tsx`'s component/prop
+signatures (including a generic `TabBar<T>` and `as const` tab arrays so
+inference works), and added `NovaCastWizard.d.ts` — an ambient module
+declaration typing the Wizard's one call site in `App.tsx` — as a lighter
+alternative to the full `.jsx` → `.tsx` conversion, which is still tracked
+separately in `ROADMAP.md` since the file's internals remain untyped, only
+its import boundary. `pnpm run typecheck` (all 10 workspace packages) is
+now clean, which is what made the CI typecheck gate (#4) safe to add.
 
 ### 14. Tailwind version split
 The workspace `catalog:` pins Tailwind v4.1.14, but

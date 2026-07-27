@@ -14,17 +14,18 @@ experience. See `VISION.md` for the full product vision.
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec (nothing generated yet — the spec only has a health check)
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only; schema is currently empty)
-- `artifacts/novacast` env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_OPENWEATHER_API_KEY` (required for the live app); `VITE_FIREBASE_*` (accepted, not yet required — see below)
+- `artifacts/novacast` env vars: `VITE_FIREBASE_*` (API key/auth domain/project ID/storage bucket/messaging sender ID/app ID) and `VITE_OPENWEATHER_API_KEY` — required for the live app
 
 ## Stack
 
 - pnpm workspaces, Node.js 22/24, TypeScript 5.9
 - **The live product** (`artifacts/novacast`): React 19 + Vite 7, Tailwind v3, no router (state-driven views)
-- API skeleton (`artifacts/api-server`, unwired to novacast): Express 5
-- DB scaffold (`lib/db`, empty schema): PostgreSQL + Drizzle ORM
+- **Backend** (canonical, ADR-008): Firestore + Firebase Auth (anonymous) + Cloud Functions (`functions/`) + Firebase Hosting
+- API skeleton (`artifacts/api-server`, unwired to novacast, not part of the Firebase stack): Express 5
+- DB scaffold (`lib/db`, empty schema, not part of the Firebase stack): PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle) for api-server; Vite for novacast
+- Build: esbuild (CJS bundle) for api-server/functions; Vite for novacast
 
 ## Where things live
 
@@ -36,10 +37,14 @@ experience. See `VISION.md` for the full product vision.
 
 ## Architecture decisions
 
-See `DECISIONS.md` for the full ADR log. Headline: the live app talks to
-Supabase directly (`src/lib/supabase.ts`); a parallel Firestore data-access
-layer exists (`src/services/database/`) but has zero callers — no final
-backend decision has been made yet (ADR-003).
+See `DECISIONS.md` for the full ADR log. Headline: Firebase is the
+canonical backend (ADR-008) — `App.tsx` talks to Firestore through
+`src/services/database/`, Firebase Auth (anonymous) backs the auth model,
+and `functions/` holds server-side logic (admin authorization, ADR-009).
+Supabase has been fully removed. Two things from this cutover are still
+unverified against a live project (no deploy credentials were available
+when it happened): whether Firestore is actually seeded with data, and
+whether `functions/` has actually been deployed — see `TECH_DEBT.md` #1a/#1b.
 
 ## Product
 
@@ -53,8 +58,7 @@ GPS → Lake Workspace flow (Game Plan / Learn / Tacklebox tabs).
   changed between versions (see `TECH_DEBT.md` #14).
 - `src/components/ui/` (shadcn scaffolding) is not wired into the app —
   don't assume it's available for reuse without checking imports first.
-- CI does not typecheck before deploying novacast — run `pnpm run
-  typecheck` yourself before pushing to `main`.
+- CI now typechecks `novacast` before deploying — keep it green.
 
 ## Pointers
 

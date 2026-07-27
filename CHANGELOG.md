@@ -5,7 +5,41 @@ This project doesn't cut versioned releases yet, so entries are grouped by
 date/theme instead of version numbers. Entries before this file existed are
 reconstructed from `git log` and marked as such.
 
-## Unreleased — Repository audit (this session)
+## Unreleased — Firebase cutover; Supabase removed (this session)
+
+### Added
+- Firebase Anonymous Auth (`ensureAnonAuth()` in `src/lib/firebase.ts`) so
+  Firestore rules can require an auth session without a login screen.
+- `functions/` — a Cloud Functions package with a `claimAdmin` callable that
+  checks the admin password server-side (Secret Manager) and grants a
+  Firebase Auth custom claim, replacing the old client-side-only check.
+- `artifacts/novacast/src/NovaCastWizard.d.ts` — ambient module declaration
+  typing the Wizard's props at its one call site.
+- A "Typecheck" step in `.github/workflows/firebase-hosting.yml`, run before
+  build/deploy.
+
+### Changed
+- `App.tsx` now reads/writes `waters`/`adminWaters`/`customLakes` through
+  the Firestore `src/services/database` layer instead of Supabase.
+- `firestore.rules`: `customLakes` reads now allowed for any authenticated
+  (including anonymous) session (previously denied outright); `adminWaters`
+  writes now require the `admin` custom claim instead of being denied
+  unconditionally.
+- Fixed all pre-existing typecheck errors in `NovaCastReference.tsx`
+  (implicit-`any` props/lookups) so the new CI typecheck gate is clean.
+
+### Removed
+- Supabase entirely: `src/lib/supabase.ts`, the `@supabase/supabase-js`
+  dependency, and `VITE_SUPABASE_*` from the CI production env file.
+
+### Known gaps in this change (see `TECH_DEBT.md` #1a/#1b)
+- Not verified against a live Firebase project: whether `waters`/
+  `adminWaters` Firestore collections are actually seeded with data, and
+  whether `functions/` has actually been deployed. No Firebase CLI or
+  project credentials were available in the environment that made this
+  change.
+
+## Repository audit (prior session)
 
 ### Security
 - Removed a hardcoded OpenWeatherMap API key from `NovaCastWizard.jsx`

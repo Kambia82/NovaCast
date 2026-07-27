@@ -13,24 +13,28 @@ named `workspace`, license MIT. Workspaces: `artifacts/*`, `lib/*`,
 ```
 NovaCast/
 ├── artifacts/
-│   ├── novacast/            # THE PRODUCT — the live, deployed app
+│   ├── novacast/            # THE PRODUCT — the live, deployed app (now on Firebase/Firestore)
 │   ├── api-server/          # Express skeleton — health check only, not wired to novacast
 │   └── mockup-sandbox/      # UI component sandbox for design exploration
+├── functions/                # Cloud Functions (Gen 2) — `claimAdmin` callable, server-side admin auth
 ├── lib/
-│   ├── db/                  # Drizzle + Postgres — schema is empty, unused
+│   ├── db/                  # Drizzle + Postgres — schema is empty, unused (not part of the Firebase stack)
 │   ├── api-spec/            # OpenAPI spec (health check only) + Orval codegen config
 │   ├── api-zod/             # Re-exports Orval-generated Zod schemas (nothing generated yet)
 │   └── api-client-react/    # Re-exports Orval-generated React Query hooks (nothing generated yet)
 ├── scripts/                 # `pnpm run hello` — placeholder workspace, not build tooling in active use
 ├── .migration-backup/       # Frozen pre-migration source tree (Bolt/Supabase export) — archival only
 ├── attached_assets/         # Product-vision source material (brainstorm notes, screenshot, PDF)
-├── firebase.json, .firebaserc, firestore.rules, firestore.indexes.json   # Firebase Hosting + Firestore config
-└── .github/workflows/firebase-hosting.yml   # CI: build novacast, deploy to Firebase Hosting on push to main
+├── firebase.json, .firebaserc, firestore.rules, firestore.indexes.json   # Firebase Hosting + Firestore + Functions config
+└── .github/workflows/firebase-hosting.yml   # CI: typecheck + build novacast, deploy to Firebase Hosting on push to main
 ```
 
-Only `artifacts/novacast` is deployed and user-facing today. Everything else
-under `lib/` and the other two `artifacts/*` packages is scaffolding for a
-direction that was started but not finished (see §5).
+Only `artifacts/novacast` is deployed and user-facing today. `functions/`
+exists but has not been deployed from this environment (no Firebase CLI
+credentials available here — see `DECISIONS.md` ADR-008). `lib/db`,
+`artifacts/api-server`, and the Orval codegen packages under `lib/` remain
+unbuilt scaffolding for a Postgres/Drizzle direction that is not part of the
+Firebase stack (§7 item 4).
 
 ## 2. The product: `artifacts/novacast`
 
@@ -76,10 +80,12 @@ App (src/App.tsx)
           <NovaCastTacklebox externalTacklebox={tacklebox} onToggleSaved={...} />
           Also contains its OWN internal "Guide" view (reels/knots/bait/
           water-reading) — a second, separate copy of reference-style content
-          alongside the same-purpose "Learn" tab (see TECH_DEBT.md #4).
+          alongside the same-purpose "Learn" tab (see TECH_DEBT.md #7).
 
-  '#admin' hash — renderAdmin(), password-gated (hardcoded 'castmaster2025' in
-      App.tsx) panel to list/delete `admin_lakes` rows via Supabase.
+  '#admin' hash — renderAdmin(): password entered client-side is sent to the
+      `claimAdmin` Cloud Function, which checks it server-side and grants an
+      `admin` custom claim; the panel then lists/deletes `adminWaters`
+      documents in Firestore, enforced by firestore.rules.
 ```
 
 This is a materially different — and more evolved — flow than the one
@@ -112,70 +118,73 @@ getCustomSpots(type, notes) → Spot[] (for user-added lakes with no curated spo
 interfaces and the `REGION_LABELS` / `TYPE_LABELS` display maps. This module
 is clean and does not need to change to support a backend swap.
 
-## 3. Data layer — three parallel backends, one actually wired up
+## 3. Data layer — Firebase/Firestore is canonical; Supabase is removed
 
-This is the single most consequential architectural fact about the current
-codebase.
+Supabase was the live backend through most of this project's history, in
+parallel with a fully-built but unwired Firestore data-access layer (see
+`DECISIONS.md` ADR-003 for that period, and ADR-008 for the cutover). As of
+ADR-008, `App.tsx` reads and writes exclusively through Firestore, and the
+Supabase client (`src/lib/supabase.ts`) and its dependency
+(`@supabase/supabase-js`) have been deleted from the repository entirely.
 
-| Backend | Where | Status |
+| Layer | Where | Status |
 |---|---|---|
-| **Supabase (Postgres + RLS)** | `src/lib/supabase.ts`, called directly from `App.tsx` (`loadWaterBodies`, `loadCustomLakes`, `loadAdminLakes`, `deleteAdminLake`) | **Live.** This is what the deployed app actually reads and writes today. |
-| **Firestore** | `src/lib/firebase.ts`, `src/services/database/{waters,customLakes,admin,shared}.ts`, `firestore.rules`, `firestore.indexes.json` | **Built, never wired in.** A complete, well-commented data-access layer (`fetchWaterBodies`, `fetchCustomLakes`, `fetchAdminLakes`, `deleteAdminLake`) exists behind a clean barrel (`src/services/database/index.ts`) but **`App.tsx` never imports from it.** It is dead code from the running app's perspective — present in the bundle, exercised by nothing. |
-| **Postgres + Drizzle** | `lib/db/` (`drizzle.config.ts`, empty `src/schema/index.ts`), consumed by `artifacts/api-server/` | **Unbuilt scaffold.** Schema file is the untouched template comment; the Express server (`artifacts/api-server`) only implements `/api/healthz`. Not connected to novacast at all. |
+| **Firestore** | `src/lib/firebase.ts` (client init + `ensureAnonAuth`), `src/services/database/{waters,customLakes,admin,shared}.ts`, `firestore.rules`, `firestore.indexes.json` | **Live.** `App.tsx` calls `fetchWaterBodies`, `fetchCustomLakes`, `fetchAdminLakes`, `deleteAdminLake` through the `src/services/database` barrel — this is the only data layer in the app. |
+| **Firebase Auth** | `src/lib/firebase.ts` (`ensureAnonAuth`) | **Live, anonymous only.** Established on `App.tsx` mount so Firestore rules can require `request.auth != null` (customLakes reads) without a login screen. No named-account auth exists yet. |
+| **Cloud Functions** | `functions/` (`claimAdmin` callable) | **Written, not yet deployed** from this environment — no Firebase CLI credentials available here. Requires `firebase functions:secrets:set ADMIN_PASSWORD` once, then `firebase deploy --only functions`, before `App.tsx`'s admin login will succeed against a live project. |
+| **Postgres + Drizzle** | `lib/db/` (`drizzle.config.ts`, empty `src/schema/index.ts`), consumed by `artifacts/api-server/` | **Unbuilt scaffold, unrelated to the Firebase stack.** Schema file is the untouched template comment; the Express server only implements `/api/healthz`. Not part of the canonical backend decision and not connected to novacast. |
 
 Firebase Hosting (`firebase.json`, `.firebaserc`, `novacast-26e4c` project)
-is genuinely used — it's the deploy target — but that's independent of
-whether Firestore (the database product, not Hosting) is in use, and today
-it isn't.
+remains the deploy target, now joined by Firestore (database) and Cloud
+Functions (backend logic) under the same project — Firebase is the single
+canonical backend end to end, as decided.
 
-`firestore.rules` currently allows public read on `waters`/`adminWaters` and
-denies all writes, and denies **both read and write** on `customLakes`
-outright. Even if `App.tsx` were switched to the Firestore layer tomorrow,
-custom lakes would be unreadable and admin deletes would fail by design —
-the code in `services/database/admin.ts` deliberately lets that
-permission-denied error surface rather than faking success, per its own
-comment, "until real Firebase Auth exists."
+**What this audit could not verify:** whether the `waters`/`adminWaters`
+Firestore collections in the live `novacast-26e4c` project are actually
+seeded with the same curated lake data that lived in Supabase's
+`water_bodies`/`admin_lakes` tables. No Firebase CLI or credentials were
+available in this environment to check or migrate live data. If those
+collections are empty, the deployed app will show zero water bodies after
+this cutover ships — **this must be checked (and the data migrated/seeded
+if needed) before or immediately after deploying this change.** Flagged as
+a blocker in this session's report.
 
-**Why this matters:** three backend technologies are represented in the
-repository, CI provisions secrets for two of them (Supabase and Firebase —
-see the workflow's `Create production env file` step), and only one is
-load-bearing. A reader (human or agent) who doesn't check `App.tsx`'s
-imports directly could easily believe the app is on Firestore already. See
-`DECISIONS.md` ADR-003 and `TECH_DEBT.md` for the path forward.
+### 3.1 Firestore schema
 
-### 3.1 Supabase schema (as actually queried by `App.tsx`)
+Collections, per `src/services/database/*.ts`:
 
-Three tables, matching the pre-migration schema documented in the archived
-`DATABASE_MAP.md` — `App.tsx`'s queries are byte-for-byte the same shape:
-
-- `water_bodies` — curated spots (`key`, `name`, `location`, `region`,
-  `type`, `species[]`, `tags jsonb`, `latitude`/`longitude`, `spots jsonb`,
-  `special_regs`)
-- `custom_lakes` — user-added spots (`name`, `location`, `type`, `notes`) —
-  `App.tsx` reads this table with no auth call anywhere in the app, so RLS
-  policies requiring `auth.uid()` (per the archived audit) would make this
-  perpetually empty unless the Supabase project's RLS was loosened since
-  that audit. Not independently re-verified against the live Supabase
-  project from this repository (no credentials available to this audit).
-- `admin_lakes` — admin-panel-managed spots, deletable via the `#admin` UI
-
-### 3.2 Firestore schema (built, unused)
-
-Collections referenced by `src/services/database/*.ts`: `waters`,
-`adminWaters`, `customLakes`. Coordinates are stored as a Firestore
-`GeoPoint` rather than flat lat/lng fields specifically to leave room for
-future geospatial queries (see the doc comment in `waters.ts`) — a
-deliberate schema choice for where this layer is headed, not a 1:1 port of
-the Supabase table.
+- **`waters`** — curated spots: `key`, `name`, `location`, `region`, `type`,
+  `species[]`, `tags`, `coordinates` (Firestore `GeoPoint`, not flat lat/lng
+  — deliberately, to leave room for future geospatial queries per the doc
+  comment in `waters.ts`), `spots`, `specialRegs`. Public read, no client
+  writes (`firestore.rules`).
+- **`adminWaters`** — admin-added spots: `name`, `location`, `region`,
+  `type`, `species[]`, `spots`, `specialRegs`, `notes`. Public read; writes
+  require the `admin` custom claim (granted by `claimAdmin`, see §4).
+- **`customLakes`** — user-added spots: `name`, `location`, `type`, `notes`.
+  Readable by any authenticated (including anonymous) session; writes
+  denied — there is still no "add a custom lake" UI anywhere in `App.tsx`,
+  so this collection has no writer regardless of rules (tracked in
+  `TECH_DEBT.md`/`ROADMAP.md`).
 
 ## 4. Authentication
 
-There is no authentication anywhere in the live app. `custom_lakes` reads
-happen unauthenticated. The `#admin` panel is a single hardcoded client-side
-password string (`castmaster2025` in `App.tsx`) — visible in the shipped
-bundle to anyone who opens devtools, and not backed by any server-side
-check. Treat it as a UX speed bump, not access control (see
-`PRODUCT_PRINCIPLES.md` #7).
+Firebase Authentication, anonymous sign-in only (`ensureAnonAuth()` in
+`src/lib/firebase.ts`, called on `App.tsx` mount). This gives every device a
+stable `request.auth.uid` so Firestore rules can gate reads/writes without a
+login screen — matching the product's no-account-required UX.
+
+The `#admin` panel's password is no longer a client-side literal: `adminLogin`
+in `App.tsx` calls the `claimAdmin` Cloud Function (`functions/src/index.ts`),
+which checks the password against a value held in Secret Manager (never
+shipped to the client bundle) and, on success, grants the caller's Firebase
+Auth session the `admin` custom claim. `firestore.rules` requires that claim
+to write to `adminWaters`. This replaces the previous client-side-only
+string comparison, which had no real enforcement behind it — any client
+could have written to `admin_lakes`/`adminWaters` directly regardless of
+what the UI checked. See `DECISIONS.md` ADR-009.
+
+No named user accounts exist yet — that's still future work (`ROADMAP.md`).
 
 ## 5. External API integrations
 
@@ -199,21 +208,27 @@ Welcome-screen-vs-Wizard to Discovery-screen-vs-Wizard.
 - `artifacts/novacast`: `vite build` → `dist/public` (see `vite.config.ts`;
   `PORT`/`BASE_PATH` env-overridable, defaults 8080 and `/`).
 - CI (`.github/workflows/firebase-hosting.yml`): on push to `main`, installs
-  scoped to novacast, writes `.env.production` from GitHub Secrets covering
-  both Supabase and Firebase config plus the OpenWeatherMap key, builds, and
-  deploys via `FirebaseExtended/action-hosting-deploy` to the
+  scoped to novacast, writes `.env.production` from GitHub Secrets (Firebase
+  config + the OpenWeatherMap key — Supabase secrets removed), **typechecks**,
+  builds, and deploys via `FirebaseExtended/action-hosting-deploy` to the
   `novacast-26e4c` Firebase Hosting site.
-- No CI step runs tests, lint, or typecheck before deploy — a build that
-  passes `vite build` (which does not type-check by default) can ship
-  broken types straight to production. See `TECH_DEBT.md`.
-- `artifacts/api-server` and `lib/db` are typecheck-only in CI's `pnpm run
-  typecheck` (via the root script's `--filter "./artifacts/**"`); nothing
-  deploys or runs them outside local dev (`.claude/launch.json` has a launch
-  config for it on port 8081, for local use only).
+- CI does **not** deploy `functions/` — that still requires a manual
+  `firebase deploy --only functions` (after `firebase functions:secrets:set
+  ADMIN_PASSWORD` has been run once) from an environment with real Firebase
+  CLI credentials, which this environment does not have. Adding an
+  automated functions-deploy step is tracked in `ROADMAP.md` rather than
+  done blind.
+- No CI step runs tests — none exist yet (`TECH_DEBT.md`).
+- `artifacts/api-server`, `lib/db`, and `functions` are typecheck-only in
+  CI's `pnpm run typecheck` (via the root script's `--filter`); nothing
+  deploys or runs `api-server`/`lib/db` outside local dev (`.claude/launch.json`
+  has a launch config for `api-server` on port 8081, for local use only).
 
 ## 7. Known architectural inconsistencies (see `TECH_DEBT.md` for the full list)
 
-1. Firestore data layer built and unused while Supabase is live (§3).
+1. ~~Firestore data layer built and unused while Supabase is live~~ —
+   **resolved** (ADR-008): `App.tsx` now calls Firestore exclusively and
+   Supabase has been removed from the repository.
 2. Two independent conditions-input UIs with drifting option sets
    (`NovaCastWizard.jsx` vs `ConditionsPanel.tsx`).
 3. Two independent "find water nearby" implementations (Discovery's Overpass
@@ -221,10 +236,11 @@ Welcome-screen-vs-Wizard to Discovery-screen-vs-Wizard.
 4. Two independent reference/field-guide UIs (`NovaCastReference.tsx` "Learn"
    tab vs `NovaCastTacklebox.tsx`'s internal "Guide" view).
 5. `lib/db` + `artifacts/api-server` + `lib/api-spec`/`api-zod`/
-   `api-client-react` form a complete, unbuilt "proper backend" scaffold
-   (Postgres, Drizzle, Express, OpenAPI codegen) that has no callers and no
-   schema — a second competing direction to the Supabase/Firestore client-
-   direct model, not yet reconciled with it.
+   `api-client-react` form a complete, unbuilt Postgres/Drizzle/Express
+   scaffold that has no callers and no schema. It is not part of the
+   Firebase-canonical stack (§3) and its future is undecided — either build
+   it out for a real server-side need Cloud Functions doesn't cover, or
+   remove it.
 6. PWA `manifest.json` references `/icon-192.png` and `/icon-512.png`; neither
    file exists in `artifacts/novacast/public/`.
 7. No test suite exists anywhere in the repository (`grep`-verified: no
@@ -243,3 +259,5 @@ Welcome-screen-vs-Wizard to Discovery-screen-vs-Wizard.
    `devDependencies` (the matching ~25 `@radix-ui/*` packages, `cmdk`,
    `embla-carousel-react`, `recharts`, `sonner`, `vaul`, `react-hook-form`,
    etc.) for code that does nothing today.
+9. `functions/` is written but unverified against a live Firebase project —
+   no deploy credentials were available in this environment (§3, §6).

@@ -52,7 +52,7 @@ backends).
 
 ---
 
-## ADR-003: Firestore migration started, not completed — Supabase remains live
+## ADR-003 (superseded by ADR-008): Firestore migration started, not completed — Supabase remains live
 
 **Context.** Commits `4bb19ad` ("feat: add Firestore scaffolding for
 novacast (additive)") and `81676fd` ("refactor: split data access layer by
@@ -153,7 +153,7 @@ it, not just the first one found.
 
 ---
 
-## ADR-007 (this audit): Defer fixing the hardcoded admin password
+## ADR-007 (superseded by ADR-009): Defer fixing the hardcoded admin password
 
 **Context.** `App.tsx`'s `#admin` panel gates on a hardcoded string
 (`'castmaster2025'`) with no server-side backing. Moving it to an
@@ -172,3 +172,72 @@ Medium-term roadmap item (`ROADMAP.md`) to replace with a real server-side
 check rather than another client-side string. Until then, treat the panel
 as having no real access control (`PRODUCT_PRINCIPLES.md` #7) and don't
 expand what it's trusted to protect.
+
+---
+
+## ADR-008: Firebase is the canonical backend — Supabase removed
+
+**Context.** ADR-003 recorded an unresolved ambiguity: Supabase was live,
+Firestore was fully built but unwired, and no decision had been made. The
+product owner has since explicitly decided Firebase (Firestore, Firebase
+Auth, Firebase Hosting/App Hosting, Firebase Storage, Cloud Functions where
+appropriate) is the canonical backend, and that Supabase is legacy to be
+removed once Firebase reaches feature parity.
+
+**Decision.** `App.tsx` now reads/writes exclusively through
+`src/services/database` (Firestore). `src/lib/supabase.ts` and the
+`@supabase/supabase-js` dependency have been deleted. CI's production env
+file no longer provisions `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`.
+Firebase Anonymous Auth (`ensureAnonAuth()` in `src/lib/firebase.ts`) was
+added so `firestore.rules` can require an auth session on `customLakes`
+reads without a login screen — this collection was unreadable in both the
+old Supabase RLS setup and the original (pre-cutover) Firestore rules, so
+this is a net-new working capability, not just a swap.
+
+**Consequences.** Feature parity was verified at the **code** level:
+`pnpm run typecheck` (all 10 workspace packages) and a full `vite build`
+both pass clean after the cutover, and every Supabase call site in the app
+has a direct Firestore equivalent wired to the same UI. **Data parity was
+not independently verified** — this environment has no Firebase CLI or
+project credentials, so whether the live `novacast-26e4c` project's
+`waters`/`adminWaters` Firestore collections actually contain the same rows
+as the old Supabase tables is unconfirmed. If they don't, the deployed app
+will show an empty water body list until seeded. This is called out as the
+primary open blocker in this session's report — verifying and, if needed,
+migrating the actual data is infrastructure work outside what this
+repository-only environment can perform.
+
+---
+
+## ADR-009: Server-side admin authorization via a Cloud Function custom claim
+
+**Context.** ADR-007 deferred fixing the hardcoded `#admin` password
+because no server-side check existed to move it to, and a client-side env
+var swap would have been security theater, not a real fix. The project
+decision to use Cloud Functions "for backend logic when appropriate" makes
+this the appropriate case: admin authorization is backend logic that must
+not live in the client bundle.
+
+**Decision.** Added `functions/` (Cloud Functions v2) with a `claimAdmin`
+callable that: requires an existing Firebase Auth session
+(`request.auth`), compares the submitted password against an
+`ADMIN_PASSWORD` value held in Secret Manager (`defineSecret`, never in
+source or the client bundle), and on success grants the caller's session
+the `admin` custom claim via `getAuth().setCustomUserClaims()`.
+`firestore.rules` now requires `request.auth.token.admin == true` to write
+to `adminWaters`. `App.tsx`'s `adminLogin` calls this function instead of
+comparing to a literal string, then force-refreshes its ID token so the new
+claim takes effect before the next Firestore write.
+
+**Consequences.** This is a real security improvement, not just a
+relocation: previously nothing but the UI's own (bypassable) check stopped
+any client from writing to `admin_lakes`/`adminWaters` directly; now
+Firestore itself enforces the claim server-side, independent of the
+client. **Not yet deployed or tested against a live project** — this
+environment has no Firebase CLI/credentials. Before this works in
+production, someone with project access must run
+`firebase functions:secrets:set ADMIN_PASSWORD` once and
+`firebase deploy --only functions`. Until then, the admin panel will show
+whatever error the callable throws when unreachable (network/not-found),
+which is a strictly safer failure mode than the old always-client-side gate
+even before deployment.

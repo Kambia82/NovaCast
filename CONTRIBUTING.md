@@ -21,27 +21,29 @@ pnpm install
 pnpm --filter @workspace/novacast run dev       # the actual app, port 8080
 pnpm --filter @workspace/api-server run dev     # health-check-only skeleton, port 8081
 pnpm --filter @workspace/mockup-sandbox run dev # design/component sandbox, port 8082
+pnpm --filter @workspace/functions run typecheck # Cloud Functions (no local emulator setup documented yet)
 ```
 
 `.claude/launch.json` has matching launch configs if your tooling reads it.
 
-`artifacts/novacast` needs these env vars to talk to its live backend (see
+`artifacts/novacast` needs these env vars to talk to Firebase (see
 `.env.production` construction in `.github/workflows/firebase-hosting.yml`
-for the full list): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
-`VITE_OPENWEATHER_API_KEY`. It also accepts `VITE_FIREBASE_*` vars for the
-built-but-unwired Firestore layer (`ARCHITECTURE.md` §3) — these aren't
-required for the app to run since nothing calls that layer yet.
+for the full list): `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`,
+`VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`,
+`VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`, and
+`VITE_OPENWEATHER_API_KEY`. Deploying `functions/` additionally requires
+`firebase functions:secrets:set ADMIN_PASSWORD` to have been run once
+against the target project (`ARCHITECTURE.md` §3, `DECISIONS.md` ADR-009).
 
 ## Checks before you push
 
 ```
-pnpm run typecheck   # root + libs, then artifacts/** and scripts
+pnpm run typecheck   # root + libs, then artifacts/**, functions, and scripts
 pnpm run build       # typecheck, then build every workspace package
 ```
 
-Note: CI does **not** run `typecheck` before deploying `novacast` today
-(`TECH_DEBT.md` #4) — run it yourself locally regardless, don't rely on CI
-to catch type errors.
+CI now runs `pnpm run typecheck` before building `novacast`
+(`.github/workflows/firebase-hosting.yml`) — keep it green.
 
 There is no test suite yet (`TECH_DEBT.md` #4, `AGENTS.md` Testing). If
 you're adding tests, `data/recommendations.ts` is the highest-value, lowest-
@@ -65,12 +67,14 @@ effort place to start — it's pure functions with no I/O.
   considering it fixed — this exact mistake happened once already
   (`DECISIONS.md` ADR-006).
 - **Recommendation logic stays pure.** `data/recommendations.ts` must not
-  import React, Supabase, or Firestore.
-- **One data-access seam.** Prefer importing water/lake data through
-  `src/services/database/index.ts`-style barrels over reaching into a
-  specific SDK from a screen component — even though today's live app
-  doesn't yet do this consistently (`ARCHITECTURE.md` §3), new code
-  shouldn't add a fourth way of doing it.
+  import React or Firestore.
+- **One data-access seam.** Import water/lake data through
+  `src/services/database/index.ts` — this is what `App.tsx` does end to
+  end now (`ARCHITECTURE.md` §3); don't reach into `firebase/firestore`
+  directly from a screen component.
+- **Firebase is the only backend.** Supabase has been fully removed
+  (`DECISIONS.md` ADR-008) — don't reintroduce it or add a second BaaS
+  without a new ADR recording why.
 
 ## Commits & branches
 

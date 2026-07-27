@@ -6,18 +6,29 @@ grounded in a verified, current gap.
 
 ## Immediate (fix what's broken or misleading)
 
-- [ ] Reconcile the three backend implementations (Supabase live, Firestore
-  built-but-unused, Postgres/Drizzle unbuilt) — see `DECISIONS.md` ADR-003
-  and `TECH_DEBT.md` #1. Either finish the Firestore cutover or remove the
-  unused layer; don't leave both.
+- [x] ~~Reconcile the three backend implementations~~ — done: Firebase
+  declared canonical, `App.tsx` cut over to Firestore, Supabase removed
+  entirely (`DECISIONS.md` ADR-008).
+- [x] ~~Add a typecheck gate to CI before deploy~~ — done: `.github/workflows/
+  firebase-hosting.yml` now runs `pnpm run typecheck` before `pnpm build`.
+- [x] ~~Resolve the pre-existing `NovaCastReference.tsx` implicit-`any`
+  errors~~ — done, plus a `NovaCastWizard.d.ts` ambient declaration for the
+  Wizard's still-untyped `.jsx` (see Short-term below for the full
+  conversion). `pnpm run typecheck` is clean across all 10 workspace
+  packages.
+- [ ] **Verify Firestore is actually seeded.** No Firebase CLI/credentials
+  were available in the environment that did the Firestore cutover — it's
+  unconfirmed whether `waters`/`adminWaters` in the live `novacast-26e4c`
+  project contain the same curated lakes that were in Supabase's
+  `water_bodies`/`admin_lakes`. **Check the Firestore console before/right
+  after this deploys; migrate the data if it's missing.** See
+  `DECISIONS.md` ADR-008, `TECH_DEBT.md` #1a.
+- [ ] **Deploy `functions/`.** Run `firebase functions:secrets:set
+  ADMIN_PASSWORD` once, then `firebase deploy --only functions`, before the
+  admin panel's `claimAdmin` call will succeed in production. See
+  `DECISIONS.md` ADR-009, `TECH_DEBT.md` #1b.
 - [ ] Add missing PWA icons (`icon-192.png`, `icon-512.png`) referenced by
   `artifacts/novacast/public/manifest.json` but absent from `public/`.
-- [ ] Add a typecheck (and, once one exists, test) gate to
-  `.github/workflows/firebase-hosting.yml` before deploy — today `vite
-  build` ships without type-checking the app first.
-- [ ] Resolve the pre-existing `NovaCastReference.tsx` implicit-`any` errors
-  and the untyped `NovaCastWizard.jsx` import, surfaced by `pnpm --filter
-  novacast run typecheck` during this audit.
 
 ## Short-term (consolidate duplicated logic)
 
@@ -32,21 +43,19 @@ grounded in a verified, current gap.
 - [ ] Fold `NovaCastTacklebox.tsx`'s internal "Guide" view (reels/knots/bait/
   water-reading) into the "Learn" tab (`NovaCastReference.tsx`) so there is
   one field-guide surface, not two.
-- [ ] Convert `NovaCastWizard.jsx` to TypeScript (still plain JS/JSX; every
-  prop is implicitly `any`).
+- [ ] Convert `NovaCastWizard.jsx` to TypeScript (still plain JS/JSX; a
+  `NovaCastWizard.d.ts` now types its import boundary, but the file's
+  internals are still untyped).
 
 ## Medium-term (finish the platform foundation)
 
-- [ ] Pick one persistence backend and finish the migration end to end:
-  schema, security rules, data-access layer, and every caller in the UI.
-  (See ADR-003.) Whichever is chosen, `custom_lakes`/`customLakes` needs a
-  real auth story (even lightweight anonymous auth) — right now it's
-  unreachable in both Supabase (per the archived RLS audit) and Firestore
-  (rules deny it outright).
-- [ ] Replace the client-side `#admin` password with a real server-side
-  check — `artifacts/api-server` already exists as a place to put this if
-  the Postgres/Drizzle direction is chosen instead of a Firebase Cloud
-  Function.
+- [x] ~~Pick one persistence backend~~ — Firebase/Firestore, done
+  (ADR-008). Remaining under this heading:
+- [ ] Build a real "add a custom lake" UI + handler in `App.tsx`
+  (`customLakes` reads now work via anonymous Firebase Auth, but nothing
+  writes to the collection — see `TECH_DEBT.md` #3) with an
+  ownership-scoped Firestore rule (`resource.data.userId ==
+  request.auth.uid`) once it exists.
 - [ ] Build the Trip Planning tab from `DESIGN_PROPOSAL.md` (date picker,
   seasonal recommendation via `getGeneralBestRecommendation(month)`,
   pre-trip gear checklist) — the only Lake Workspace tab from that proposal
@@ -65,9 +74,13 @@ grounded in a verified, current gap.
 - [ ] Offline mode / service-worker caching of water body data for
   in-the-field use with no signal.
 - [ ] Decide the fate of `artifacts/api-server` + `lib/db` +
-  `lib/api-spec`/`api-zod`/`api-client-react`: either build them into the
-  real backend for admin/auth/future server-side features, or remove the
-  scaffold if the product stays client-direct-to-BaaS long term.
+  `lib/api-spec`/`api-zod`/`api-client-react`: this Postgres/Drizzle/Express
+  scaffold is not part of the Firebase-canonical stack (`functions/` is now
+  the home for server-side logic per ADR-009) — either find it a real job
+  Cloud Functions doesn't cover, or remove the scaffold.
+- [ ] Remove or actually adopt `artifacts/novacast/src/components/ui/` (the
+  unused shadcn scaffolding, `ARCHITECTURE.md` §7 item 8) — currently dead
+  weight either way.
 
 ## Future ideas (speculative — not committed)
 

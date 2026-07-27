@@ -23,27 +23,31 @@ shared source of options, not copy-pasted into a second UI.
 ## 3. Recommendations are pure functions
 
 `data/recommendations.ts` takes conditions in and returns lures/colors/spots
-out with no knowledge of Supabase, Firestore, or React. Keep it that way.
-Backend and UI changes should never require touching the scoring logic, and
+out with no knowledge of Firestore or React. Keep it that way. Backend and
+UI changes should never require touching the scoring logic, and
 scoring-logic changes should never require touching a backend client.
 
 ## 4. The data layer is an implementation detail
 
-Components should import water/lake data through one seam
-(`src/services/database/index.ts` is the intended seam — see
-`ARCHITECTURE.md` for why it's not fully wired yet), never reach into a
-specific SDK (`@supabase/supabase-js`, `firebase/firestore`) directly from a
-screen component. This is what makes a future backend swap possible without
-a UI rewrite.
+Components import water/lake data through one seam
+(`src/services/database/index.ts` — `App.tsx` does this end to end as of
+`DECISIONS.md` ADR-008), never reaching into `firebase/firestore` directly
+from a screen component. This is what makes a future backend swap possible
+without a UI rewrite — which is exactly what let the Supabase-to-Firestore
+cutover happen without changing any component's public interface.
 
 ## 5. No dead parallel infrastructure
 
 Don't leave two implementations of the same capability half-built side by
-side (see the Supabase/Firestore/Postgres+Drizzle situation in
-`ARCHITECTURE.md`). When a migration starts, finish it — cut over the
-callers, delete the old path, and update the docs — before starting the
-next one. A half-migrated system is worse than the system it was replacing,
-because it hides which copy is authoritative.
+side. This happened once already: a complete Firestore data-access layer
+sat unused for months while Supabase remained the only thing `App.tsx`
+actually called (`DECISIONS.md` ADR-003/ADR-008). When a migration starts,
+finish it — cut over the callers, delete the old path, and update the docs
+in the same pass — before starting the next one. A half-migrated system is
+worse than the system it was replacing, because it hides which copy is
+authoritative. The `lib/db`/`artifacts/api-server` Postgres/Drizzle scaffold
+is the current instance of this risk — it has no callers and its future
+(build it out, or remove it) is still undecided (`ROADMAP.md`).
 
 ## 6. Secrets never enter source
 
@@ -56,10 +60,13 @@ of bug.
 
 ## 7. Client-side gates are not security
 
-The `#admin` panel's hardcoded password is a UX speed bump, not an access
-control. Do not expand what it protects (e.g. don't wire real user data or
-destructive operations behind it) until it's backed by a real server-side
-check. See `TECH_DEBT.md` and `DECISIONS.md`.
+A hardcoded password compared in client-side JavaScript is a UX speed bump,
+not an access control — the `#admin` panel had exactly this problem until
+`DECISIONS.md` ADR-009 moved the check into a Cloud Function backed by a
+Secret Manager value and a Firebase Auth custom claim enforced in
+`firestore.rules`. Keep this pattern for anything else that needs real
+authorization: check server-side, gate the actual data layer (Firestore
+rules, not just the UI), never trust a client-side comparison alone.
 
 ## 8. Region-specific content is data, not code
 
