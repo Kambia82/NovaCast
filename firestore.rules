@@ -1,16 +1,31 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Curated water body list — public read (core Discovery/Wizard data),
+    // no client writes. Content is maintained by developers/data imports.
     match /waters/{docId} {
       allow read: if true;
       allow write: if false;
     }
+
+    // Admin-added lakes — public read (same as `waters`). Writes require the
+    // `admin` custom claim, granted by the `claimAdmin` Cloud Function after
+    // it verifies the admin password server-side (see functions/src/index.ts).
+    // This replaces the old client-side-only password check, which had no
+    // real enforcement behind it.
     match /adminWaters/{docId} {
       allow read: if true;
-      allow write: if false;
+      allow write: if request.auth != null && request.auth.token.admin == true;
     }
+
+    // No "add a custom lake" UI exists in the app yet (App.tsx has no writer
+    // for this collection) — reads only, gated on having an auth session
+    // (anonymous auth is established automatically on app load). Writes stay
+    // denied until a real create-lake feature ships with an ownership model
+    // (e.g. `resource.data.userId == request.auth.uid`).
     match /customLakes/{docId} {
-      allow read, write: if false;
+      allow read: if request.auth != null;
+      allow write: if false;
     }
   }
 }

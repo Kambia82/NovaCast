@@ -4,7 +4,10 @@ import NovaCastReference from './NovaCastReference';
 import NovaCastTacklebox from './NovaCastTacklebox';
 import ConditionsPanel from './ConditionsPanel';
 
-import { supabase } from './lib/supabase';
+import { ensureAnonAuth, functions } from './lib/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { fetchWaterBodies, fetchCustomLakes, fetchAdminLakes, deleteAdminLake as deleteAdminLakeDoc } from './services/database';
+import type { WaterBodyRecord, CustomLakeRecord, AdminLakeRecord } from './services/database';
 import { calcDistance } from './lib/geo';
 import {
   getFishMovement,
@@ -30,13 +33,9 @@ import {
 } from 'lucide-react';
 
 
-interface WaterBodyRow {
-  id: string; key: string; name: string; location: string; region: string;
-  type: string; species: string[]; tags: { label: string; color: string }[];
-  latitude: number | null; longitude: number | null; spots: Spot[] | null; special_regs: string | null;
-}
-interface CustomLakeRow { id: string; name: string; location: string; type: string; notes: string; }
-interface AdminLakeRow { id: string; name: string; location: string; region: string; type: string; species: string[]; spots: Spot[]; special_regs: string; notes: string; }
+type WaterBodyRow = WaterBodyRecord;
+type CustomLakeRow = CustomLakeRecord;
+type AdminLakeRow = AdminLakeRecord;
 interface NearbyWaterBody { name: string; type: string; distance: number; lat: number; lon: number; }
 
 interface WizardState {
@@ -92,7 +91,10 @@ export default function App() {
   const [weatherLoaded, setWeatherLoaded] = useState('');
 
   useEffect(() => {
-    loadWaterBodies(); loadCustomLakes(); loadAdminLakes();
+    loadWaterBodies(); loadAdminLakes();
+    // customLakes reads require an auth session (Firestore rules) — waters/
+    // adminWaters are public reads and don't need to wait on this.
+    ensureAnonAuth().then(loadCustomLakes).catch(() => setCustomLakes([]));
     if (window.location.hash === '#admin') setShowAdmin(true);
     const handler = () => { if (window.location.hash === '#admin') setShowAdmin(true); };
     window.addEventListener('hashchange', handler);
@@ -112,9 +114,9 @@ export default function App() {
     });
   };
 
-  const loadWaterBodies = async () => { const { data } = await supabase.from('water_bodies').select('*').order('name'); if (data) setWaterBodies(data as WaterBodyRow[]); };
-  const loadCustomLakes = async () => { const { data } = await supabase.from('custom_lakes').select('*').order('created_at', { ascending: false }); if (data) setCustomLakes(data as CustomLakeRow[]); };
-  const loadAdminLakes = async () => { const { data } = await supabase.from('admin_lakes').select('*').order('created_at', { ascending: false }); if (data) setAdminLakes(data as AdminLakeRow[]); };
+  const loadWaterBodies = async () => { setWaterBodies(await fetchWaterBodies()); };
+  const loadCustomLakes = async () => { setCustomLakes(await fetchCustomLakes()); };
+  const loadAdminLakes = async () => { setAdminLakes(await fetchAdminLakes()); };
 
   const resetAll = () => {
     setState({ loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null, water: null, temp: null, wind: null, pressure: null, fish: null, reel: null, recentWeather: [] });
@@ -215,8 +217,34 @@ export default function App() {
     setZipLoading(false);
   }, [zipCode]);
 
-  const adminLogin = () => { if (adminPw === 'castmaster2025') { setAdminAuthed(true); setAdminMsg(null); } else { setAdminPw(''); setAdminMsg({ text: 'Wrong password', type: 'error' }); } };
-  const deleteAdminLake = async (id: string) => { await supabase.from('admin_lakes').delete().eq('id', id); loadAdminLakes(); };
+  // Password check now happens server-side in the `claimAdmin` Cloud Function
+  // (functions/src/index.ts), which grants the calling user's Firebase Auth
+  // session the `admin` custom claim that firestore.rules requires to write
+  // to `adminWaters`. Replaces the old client-side-only string comparison,
+  // which had no real enforcement behind it (any client could write
+  // regardless of what the UI checked).
+  const adminLogin = async () => {
+    setAdminMsg(null);
+    try {
+      const user = await ensureAnonAuth();
+      const claimAdmin = httpsCallable<{ password: string }, { ok: true }>(functions, 'claimAdmin');
+      await claimAdmin({ password: adminPw });
+      await user.getIdToken(true); // refresh so the new custom claim is picked up
+      setAdminAuthed(true);
+      setAdminPw('');
+    } catch (err) {
+      setAdminPw('');
+      setAdminMsg({ text: err instanceof Error ? err.message : 'Wrong password', type: 'error' });
+    }
+  };
+  const deleteAdminLake = async (id: string) => {
+    try {
+      await deleteAdminLakeDoc(id);
+      await loadAdminLakes();
+    } catch (err) {
+      setAdminMsg({ text: err instanceof Error ? err.message : 'Delete failed.', type: 'error' });
+    }
+  };
 
   const getLocSpots = (): Spot[] => {
     const dbBody = waterBodies.find(w => w.key === state.loc); if (dbBody?.spots && dbBody.spots.length > 0) return dbBody.spots;

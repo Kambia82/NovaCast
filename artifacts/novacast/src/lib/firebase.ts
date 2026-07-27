@@ -1,5 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAuth, onAuthStateChanged, signInAnonymously, type User } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'placeholder-api-key',
@@ -18,3 +20,37 @@ export const firebaseConfigured = !!(
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
+export const functions = getFunctions(app);
+
+// Anonymous auth gives every device a stable uid without a login screen —
+// needed so Firestore rules can require `request.auth != null` on reads/
+// writes (e.g. customLakes) without blocking every user. Memoized so callers
+// (App.tsx on mount, the admin panel before requesting the `admin` custom
+// claim) can all await the same in-flight sign-in instead of racing it.
+let anonSignIn: Promise<User> | null = null;
+export function ensureAnonAuth(): Promise<User> {
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+  if (!anonSignIn) {
+    anonSignIn = new Promise<User>((resolve, reject) => {
+      const unsubscribe = onAuthStateChanged(
+        auth,
+        (user) => {
+          if (user) {
+            unsubscribe();
+            resolve(user);
+          }
+        },
+        (err) => {
+          unsubscribe();
+          reject(err);
+        },
+      );
+      signInAnonymously(auth).catch((err) => {
+        unsubscribe();
+        reject(err);
+      });
+    });
+  }
+  return anonSignIn;
+}
