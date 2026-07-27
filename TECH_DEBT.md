@@ -113,9 +113,9 @@ overriding the catalog. This is intentional (see `DECISIONS.md` ADR-001 and
 v3→v4 `@tailwind` directive changes), not something to "fix" by aligning it
 to the catalog without a deliberate, tested migration.
 
-### 15. `replit.md` is an unfilled template
-Still contains its placeholder instructions (`_Replace the heading
-above..._`, `_Populate as you build..._`) rather than real project content.
-Superseded in practice by `ARCHITECTURE.md`/`AGENTS.md`/`CONTRIBUTING.md`
-added in this audit; low priority to fill in unless it's still the expected
-onboarding doc for a specific tool/workflow.
+### 15. `replit.md` was an unfilled template — **fixed in this audit**
+Previously still contained its placeholder instructions (`_Replace the
+heading above..._`, `_Populate as you build..._`) rather than real project
+content. Filled in with real content and pointers to `VISION.md`/
+`ARCHITECTURE.md`/`AGENTS.md`/`CONTRIBUTING.md` in this audit. Listed here
+for the historical record; no longer outstanding.

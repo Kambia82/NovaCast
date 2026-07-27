@@ -30,6 +30,8 @@ reconstructed from `git log` and marked as such.
 - `VISION.md`, `PRODUCT_PRINCIPLES.md`, `ARCHITECTURE.md`, `ROADMAP.md`,
   `DECISIONS.md`, `AGENTS.md`, `CONTRIBUTING.md`, `TECH_DEBT.md`, this
   `CHANGELOG.md` — canonical documentation set.
+- Filled in `replit.md`, previously an unfilled placeholder template, with
+  real project content and pointers to the new canonical docs.
 
 ## Reconstructed history (from `git log`, prior to this audit)
 
