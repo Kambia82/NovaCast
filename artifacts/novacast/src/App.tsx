@@ -4,8 +4,9 @@ import NovaCastReference from './NovaCastReference';
 import NovaCastTacklebox from './NovaCastTacklebox';
 import NovaCastRecon from './NovaCastRecon';
 import ConditionsPanel from './ConditionsPanel';
+import MapPreview from './MapPreview';
 
-import { supabase } from './lib/supabase';
+import { fetchWaterBodies, fetchAdminLakes, fetchCustomLakes, deleteAdminLake as deleteAdminLakeRecord } from './services/database';
 import {
   getFishMovement,
   applyRecentWeatherToDepth,
@@ -46,8 +47,12 @@ interface WizardState {
   recentWeather: string[];
 }
 
-type AppView = 'discovery' | 'location' | 'wizard' | 'workspace' | 'recon' | 'walmartrun';
+type AppView = 'discovery' | 'location' | 'wizard' | 'workspace' | 'recon' | 'walmartrun' | 'onbank-pick';
 type WorkspaceTab = 'recommendations' | 'learn' | 'tacklebox';
+
+// Real GPS options: no timeout means some mobile browsers hang indefinitely
+// waiting for a GPS lock, which reads as "the location flow does nothing."
+const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 };
 
 const MONTH = new Date().getMonth();
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -84,6 +89,9 @@ export default function App() {
   const [tooltipOpen, setTooltipOpen] = useState<string | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherLoaded, setWeatherLoaded] = useState('');
+  const [bankLocating, setBankLocating] = useState(false);
+  const [bankError, setBankError] = useState('');
+  const [bankPos, setBankPos] = useState<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
     loadWaterBodies(); loadCustomLakes(); loadAdminLakes();
@@ -106,9 +114,9 @@ export default function App() {
     });
   };
 
-  const loadWaterBodies = async () => { const { data } = await supabase.from('water_bodies').select('*').order('name'); if (data) setWaterBodies(data as WaterBodyRow[]); };
-  const loadCustomLakes = async () => { const { data } = await supabase.from('custom_lakes').select('*').order('created_at', { ascending: false }); if (data) setCustomLakes(data as CustomLakeRow[]); };
-  const loadAdminLakes = async () => { const { data } = await supabase.from('admin_lakes').select('*').order('created_at', { ascending: false }); if (data) setAdminLakes(data as AdminLakeRow[]); };
+  const loadWaterBodies = async () => { const data = await fetchWaterBodies(); setWaterBodies(data as WaterBodyRow[]); };
+  const loadCustomLakes = async () => { const data = await fetchCustomLakes(); setCustomLakes(data as CustomLakeRow[]); };
+  const loadAdminLakes = async () => { const data = await fetchAdminLakes(); setAdminLakes(data as AdminLakeRow[]); };
 
   const resetAll = () => {
     setState({ loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null, water: null, temp: null, wind: null, pressure: null, fish: null, reel: null, recentWeather: [] });
@@ -122,14 +130,16 @@ export default function App() {
     setState(prev => ({ ...prev, [key]: value } as WizardState));
   }, []);
 
-  const loadWeather = useCallback(() => {
-    if (!navigator.geolocation) { setWeatherLoaded('Location not available.'); return; }
-    setWeatherLoading(true); setWeatherLoaded('');
-    navigator.geolocation.getCurrentPosition(async (pos) => {
+  // Fetches current weather/pressure. Pass along GPS coords already obtained
+  // elsewhere in the flow to avoid prompting for location a second time;
+  // omit them to have this call get its own (used by the manual "Auto-Fill
+  // My Weather" button, which has no coords of its own to reuse).
+  const loadWeather = useCallback((coords?: { latitude: number; longitude: number }) => {
+    const runFetch = async (latitude: number, longitude: number) => {
       try {
         const apiKey = import.meta.env.VITE_OPENWEATHER_API_KEY;
         if (!apiKey) throw new Error('Weather API key not configured');
-        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&appid=${apiKey}&units=imperial`);
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${apiKey}&units=imperial`);
         const data = await res.json();
         if (data.cod !== 200) throw new Error(data.message);
         const tempF = Math.round(data.main.temp), windMph = Math.round(data.wind.speed);
@@ -148,7 +158,16 @@ export default function App() {
         setWeatherLoaded(`${data.name} — ${tempF}°F · ${skyL[sky]} · ${windL[wind]}`);
       } catch { setWeatherLoaded("Couldn't load weather. Fill in manually."); }
       setWeatherLoading(false);
-    }, () => { setWeatherLoaded('Location permission denied.'); setWeatherLoading(false); });
+    };
+
+    setWeatherLoading(true); setWeatherLoaded('');
+    if (coords) { runFetch(coords.latitude, coords.longitude); return; }
+    if (!navigator.geolocation) { setWeatherLoaded('Location not available.'); setWeatherLoading(false); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => runFetch(pos.coords.latitude, pos.coords.longitude),
+      () => { setWeatherLoaded('Location permission denied.'); setWeatherLoading(false); },
+      GEO_OPTIONS
+    );
   }, []);
 
   const startWithGPS = useCallback(() => {
@@ -156,19 +175,24 @@ export default function App() {
   }, []);
 
   // Zero-friction "On the Bank" mode: no manual conditions form.
-  // Auto-detects time of day, snaps to nearest saved water body if within 5mi,
-  // auto-pulls weather, and drops straight into recommendations.
+  // Gets GPS once, snaps to a known water body if within 5mi and pulls
+  // weather for those same coords, and drops straight into recommendations.
+  // If no known water body is nearby, hands off to the nearby-water picker
+  // instead of silently guessing a location.
   const startOnTheBank = useCallback(() => {
-    const hour = new Date().getHours();
-    const time = hour < 11 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
-    setState(prev => ({ ...prev, time, locName: prev.locName || 'Your Current Spot' }));
-    setView('workspace');
-    setActiveTab('recommendations');
+    setBankError('');
+    if (!navigator.geolocation) {
+      setBankError("This browser can't provide your location. Search for your water manually instead.");
+      setView('location');
+      return;
+    }
 
-    if (!navigator.geolocation) { loadWeather(); return; }
-
+    setBankLocating(true);
     navigator.geolocation.getCurrentPosition((pos) => {
+      setBankLocating(false);
       const { latitude, longitude } = pos.coords;
+      const hour = new Date().getHours();
+      const time = hour < 11 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
       const toRad = (d: number) => d * Math.PI / 180;
       const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
         const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1);
@@ -180,15 +204,21 @@ export default function App() {
         .map(w => ({ w, dist: calcDist(latitude, longitude, w.latitude as number, w.longitude as number) }))
         .sort((a, b) => a.dist - b.dist)[0];
 
-      setState(prev => ({
-        ...prev,
-        locLat: latitude,
-        locLon: longitude,
-        loc: nearest && nearest.dist < 5 ? nearest.w.key : null,
-        locName: nearest && nearest.dist < 5 ? nearest.w.name : 'Your Current Spot',
-      }));
-      loadWeather();
-    }, () => { loadWeather(); });
+      if (nearest && nearest.dist < 5) {
+        setState(prev => ({ ...prev, time, loc: nearest.w.key, locName: nearest.w.name, locLat: latitude, locLon: longitude }));
+        setView('workspace');
+        setActiveTab('recommendations');
+        loadWeather({ latitude, longitude });
+      } else {
+        setState(prev => ({ ...prev, time }));
+        setBankPos({ lat: latitude, lon: longitude });
+        setView('onbank-pick');
+      }
+    }, () => {
+      setBankLocating(false);
+      setBankError('Location permission was denied. NovaCast needs your location to find water near you and pull local weather automatically — search for your spot manually instead.');
+      setView('location');
+    }, GEO_OPTIONS);
   }, [waterBodies, loadWeather]);
 
   const searchByZip = useCallback(() => {
@@ -196,7 +226,7 @@ export default function App() {
   }, []);
 
   const adminLogin = () => { if (adminPw === 'castmaster2025') { setAdminAuthed(true); setAdminMsg(null); } else { setAdminPw(''); setAdminMsg({ text: 'Wrong password', type: 'error' }); } };
-  const deleteAdminLake = async (id: string) => { await supabase.from('admin_lakes').delete().eq('id', id); loadAdminLakes(); };
+  const deleteAdminLake = async (id: string) => { await deleteAdminLakeRecord(id); loadAdminLakes(); };
 
   const getLocSpots = (): Spot[] => {
     const dbBody = waterBodies.find(w => w.key === state.loc); if (dbBody?.spots && dbBody.spots.length > 0) return dbBody.spots;
@@ -253,7 +283,7 @@ export default function App() {
           <div className="text-xs text-[#4A6878] leading-relaxed">Live map. Find water near you, right now.</div>
         </button>
 
-        <button onClick={() => setView('location')} className="text-left bg-[#0c1822] border border-[rgba(230,180,90,0.25)] rounded-2xl p-5 cursor-pointer hover:border-[rgba(230,180,90,0.5)] transition-all">
+        <button onClick={() => { setBankError(''); setView('location'); }} className="text-left bg-[#0c1822] border border-[rgba(230,180,90,0.25)] rounded-2xl p-5 cursor-pointer hover:border-[rgba(230,180,90,0.5)] transition-all">
           <FileText className="w-6 h-6 text-[#E6B45A] mb-6" />
           <div className="font-display text-lg tracking-wide text-[#C8E4F0] mb-1">Game Plan</div>
           <div className="text-xs text-[#4A6878] leading-relaxed">Tell us conditions, get the bait first.</div>
@@ -297,6 +327,12 @@ export default function App() {
 
       <div className="text-[10px] uppercase tracking-[3px] text-[#4A6878] mb-4 font-semibold">Where are you fishing?</div>
 
+      {bankError && (
+        <div className="text-[#FC8181] text-xs bg-[rgba(252,129,129,0.06)] border border-[rgba(252,129,129,0.2)] rounded-xl px-3 py-2.5 mb-4 text-left">
+          {bankError}
+        </div>
+      )}
+
       <button
         onClick={startWithGPS}
         className="w-full py-4 bg-[rgba(186,232,255,0.06)] border border-[#1A3346] rounded-2xl text-[#BAE8FF] text-sm font-semibold cursor-pointer mb-3 flex items-center justify-center gap-2.5 hover:bg-[rgba(186,232,255,0.1)] hover:border-[rgba(186,232,255,0.3)] transition-all animate-pulse-border"
@@ -318,6 +354,14 @@ export default function App() {
           <Search className="w-4 h-4" />
         </button>
       </div>
+    </div>
+  );
+
+  // ── ON THE BANK: BRIEF GPS LOCATING OVERLAY ───────────────────────────
+  const renderBankLocating = () => (
+    <div className="fixed inset-0 bg-[#060b10] z-50 flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <Navigation className="w-6 h-6 text-[#7CCBE8] animate-pulse" />
+      <div className="text-sm text-[#A8C8D8]">Finding water near you…</div>
     </div>
   );
 
@@ -370,10 +414,13 @@ export default function App() {
 
         {/* Maps + special regs */}
         {coords.lat && coords.lon && (
-          <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lon}`, '_blank')}
-            className="flex items-center gap-1.5 text-xs text-[#7CCBE8] hover:text-[#BAE8FF] transition-colors cursor-pointer bg-transparent border-none mb-1">
-            <Navigation className="w-3.5 h-3.5" /> Navigate to this lake
-          </button>
+          <div className="space-y-1.5 mb-1">
+            <MapPreview lat={coords.lat} lon={coords.lon} label={locName || undefined} />
+            <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lon}`, '_blank')}
+              className="flex items-center gap-1.5 text-xs text-[#7CCBE8] hover:text-[#BAE8FF] transition-colors cursor-pointer bg-transparent border-none">
+              <Navigation className="w-3.5 h-3.5" /> Navigate to this lake
+            </button>
+          </div>
         )}
         {regs && <div className="bg-[rgba(252,129,129,0.06)] border border-[rgba(252,129,129,0.2)] rounded-xl px-3 py-2.5 text-xs text-[#FC8181]">{regs}</div>}
 
@@ -613,12 +660,28 @@ export default function App() {
   // ── MAIN RENDER ──────────────────────────────────────────────────────
   return (
     <div className="relative z-10 max-w-[480px] mx-auto px-4" onClick={() => setTooltipOpen(null)}>
+      {bankLocating && renderBankLocating()}
+
       {view === 'discovery' && renderDiscovery()}
 
       {view === 'location' && renderLocationSearch()}
 
       {view === 'recon' && (
         <NovaCastRecon onBack={() => setView('discovery')} waterBodies={waterBodies} />
+      )}
+
+      {view === 'onbank-pick' && bankPos && (
+        <NovaCastRecon
+          onBack={() => setView('discovery')}
+          waterBodies={waterBodies}
+          initialPos={bankPos}
+          onUseWater={(w) => {
+            setState(prev => ({ ...prev, loc: w.curatedKey ?? null, locName: w.name, locLat: w.lat, locLon: w.lon }));
+            setView('workspace');
+            setActiveTab('recommendations');
+            loadWeather({ latitude: w.lat, longitude: w.lon });
+          }}
+        />
       )}
 
       {view === 'walmartrun' && renderComingSoon(

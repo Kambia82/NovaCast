@@ -14,9 +14,21 @@ interface OsmWaterBody { name: string; lat: number; lon: number; type: string; d
 interface Props {
   onBack: () => void;
   waterBodies: CuratedWaterBody[];
+  // When provided, skip the "enable location" gate and search from this
+  // position immediately — used by On the Bank, which already has a fresh
+  // GPS fix and shouldn't prompt for location a second time.
+  initialPos?: { lat: number; lon: number };
+  // When provided, a selected water body shows a "Use This Spot" action that
+  // calls back instead of just displaying info — used by On the Bank to let
+  // the angler confirm their water instead of the app guessing silently.
+  onUseWater?: (water: { curatedKey?: string; name: string; lat: number; lon: number }) => void;
 }
 
 type ReconState = 'gate' | 'locating' | 'map' | 'manual';
+
+// No timeout means some mobile browsers hang indefinitely waiting for a GPS
+// lock, which reads as "the location flow does nothing."
+const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 };
 
 const toRad = (d: number) => (d * Math.PI) / 180;
 const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -45,7 +57,7 @@ async function fetchNearbyWater(lat: number, lon: number): Promise<OsmWaterBody[
   return list.sort((a, b) => a.distance - b.distance).slice(0, 25);
 }
 
-export default function NovaCastRecon({ onBack, waterBodies }: Props) {
+export default function NovaCastRecon({ onBack, waterBodies, initialPos, onUseWater }: Props) {
   const [reconState, setReconState] = useState<ReconState>('gate');
   const [userPos, setUserPos] = useState<{ lat: number; lon: number } | null>(null);
   const [nearby, setNearby] = useState<OsmWaterBody[]>([]);
@@ -77,7 +89,27 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
     }, () => {
       setError('Location was denied. You can search a place manually instead.');
       setReconState('manual');
-    });
+    }, GEO_OPTIONS);
+  }, []);
+
+  // If a position was already obtained by the caller (On the Bank), search
+  // from it immediately instead of asking for location again.
+  useEffect(() => {
+    if (!initialPos) return;
+    setUserPos({ lat: initialPos.lat, lon: initialPos.lon });
+    setReconState('locating');
+    (async () => {
+      try {
+        const results = await fetchNearbyWater(initialPos.lat, initialPos.lon);
+        setNearby(results);
+        setReconState('map');
+      } catch {
+        setError("Couldn't reach map data. Try again.");
+        setReconState('gate');
+      }
+    })();
+    // Only ever run once per mount — a fresh position means a fresh mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const searchManual = useCallback(async () => {
@@ -256,10 +288,26 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
               <span>Not in our verified database yet. Public map data only gives us the outline — not depth, species, or regulations. That data comes from anglers curating it directly.</span>
             </div>
           )}
+
+          {onUseWater && (
+            <button
+              onClick={() => onUseWater({ curatedKey: curatedSelected?.key, name: selected.name, lat: selected.lat, lon: selected.lon })}
+              className="w-full mt-3 py-3 bg-[rgba(186,232,255,0.1)] border border-[rgba(186,232,255,0.3)] rounded-xl text-[#BAE8FF] text-sm font-semibold cursor-pointer hover:bg-[rgba(186,232,255,0.16)] transition-all"
+            >
+              Use This Spot — Get My Game Plan
+            </button>
+          )}
         </div>
       )}
 
-      <div className="text-[10px] text-[#4A6878] mb-2 uppercase tracking-wider px-1">{nearby.length} spots within ~15 miles</div>
+      {nearby.length === 0 ? (
+        <div className="text-xs text-[#4A6878] leading-relaxed bg-[#0c1822] border border-[#1A3346] rounded-xl p-4 flex gap-2">
+          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>No named water found within ~15 miles of your location. Map coverage can be thin in some areas — try searching a place instead, or check back once you're closer to water.</span>
+        </div>
+      ) : (
+        <div className="text-[10px] text-[#4A6878] mb-2 uppercase tracking-wider px-1">{nearby.length} spots within ~15 miles</div>
+      )}
       {nearby.map((w, i) => {
         const curated = findCurated(w.lat, w.lon);
         return (
