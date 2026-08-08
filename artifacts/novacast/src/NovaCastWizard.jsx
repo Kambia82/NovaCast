@@ -214,7 +214,9 @@ export default function NovaCastWizard({ onComplete, waterBodies = [], customLak
     navigator.geolocation.getCurrentPosition(async (pos) => {
       setWeatherStatus('Fetching weather...');
       try {
-        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&appid=9e751a40a370416832496e123e1098cc&units=imperial`);
+        const apiKey = import.meta.env.VITE_OPENWEATHER_API_KEY;
+        if (!apiKey) throw new Error('Weather API key not configured');
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&appid=${apiKey}&units=imperial`);
         const data = await res.json();
         if (data.cod !== 200) throw new Error(data.message);
         const tempF = Math.round(data.main.temp), windMph = Math.round(data.wind.speed);
