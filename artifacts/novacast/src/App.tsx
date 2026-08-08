@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import NovaCastWizard from './NovaCastWizard';
 import NovaCastReference from './NovaCastReference';
 import NovaCastTacklebox from './NovaCastTacklebox';
+import NovaCastRecon from './NovaCastRecon';
 import ConditionsPanel from './ConditionsPanel';
 
 import { supabase } from './lib/supabase';
@@ -26,6 +27,7 @@ import type { Spot, Lure, ColorRec, WalmartItem } from './data/recommendations';
 import {
   Navigation, Settings, Trash2, Droplets, Thermometer,
   Wind, Heart, MapPin, Search, BookOpen, X, Info, Fish, ChevronLeft,
+  Clock, FileText, ShoppingCart,
 } from 'lucide-react';
 
 
@@ -36,7 +38,6 @@ interface WaterBodyRow {
 }
 interface CustomLakeRow { id: string; name: string; location: string; type: string; notes: string; }
 interface AdminLakeRow { id: string; name: string; location: string; region: string; type: string; species: string[]; spots: Spot[]; special_regs: string; notes: string; }
-interface NearbyWaterBody { name: string; type: string; distance: number; lat: number; lon: number; }
 
 interface WizardState {
   loc: string | null; locName: string | null; locLat: number | null; locLon: number | null;
@@ -45,7 +46,7 @@ interface WizardState {
   recentWeather: string[];
 }
 
-type AppView = 'discovery' | 'wizard' | 'workspace';
+type AppView = 'discovery' | 'location' | 'wizard' | 'workspace' | 'recon' | 'walmartrun';
 type WorkspaceTab = 'recommendations' | 'learn' | 'tacklebox';
 
 const MONTH = new Date().getMonth();
@@ -53,12 +54,12 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const currentMonth = MONTH_NAMES[MONTH];
 
 function getMonthBanner() {
-  if (MONTH >= 3 && MONTH <= 4) return 'Spawn season is on. Bass and crappie are moving shallow — one of the best times to fish the STL area.';
+  if (MONTH >= 3 && MONTH <= 4) return 'Spawn season is on. Bass and crappie are moving shallow — one of the best times to get out.';
   if (MONTH === 5) return 'Post-spawn bass are hungry and feeding again. Great topwater month.';
   if (MONTH >= 6 && MONTH <= 8) return 'Summer patterns: early morning and evening are your best windows. Fish deep during midday heat.';
   if (MONTH >= 9 && MONTH <= 10) return 'Fall feed is on. Bass and crappie are aggressively feeding before winter.';
   if (MONTH >= 11 || MONTH <= 1) return 'Slow and deep — winter fishing means slow presentations in the deepest water. Fish are lethargic but catchable.';
-  return 'Good fishing conditions in the STL area. Check conditions and pick your spot.';
+  return 'Good fishing conditions. Check conditions and pick your spot.';
 }
 
 export default function App() {
@@ -71,13 +72,7 @@ export default function App() {
   const [waterBodies, setWaterBodies] = useState<WaterBodyRow[]>([]);
   const [customLakes, setCustomLakes] = useState<CustomLakeRow[]>([]);
   const [adminLakes, setAdminLakes] = useState<AdminLakeRow[]>([]);
-  const [nearbyWater, setNearbyWater] = useState<NearbyWaterBody[]>([]);
-  const [nearbyLoading, setNearbyLoading] = useState(false);
-  const [nearbyError, setNearbyError] = useState('');
-  const [hasSearched, setHasSearched] = useState(false);
   const [zipCode, setZipCode] = useState('');
-  const [zipLoading, setZipLoading] = useState(false);
-  const [zipError, setZipError] = useState('');
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [adminPw, setAdminPw] = useState('');
@@ -157,66 +152,48 @@ export default function App() {
   }, []);
 
   const startWithGPS = useCallback(() => {
-    if (!navigator.geolocation) { setNearbyError('Location not available on this device.'); return; }
-    setNearbyLoading(true); setNearbyError(''); setNearbyWater([]);
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude, longitude } = pos.coords;
-      try {
-        const query = `[out:json][timeout:25];(way["natural"="water"](around:30000,${latitude},${longitude});way["waterway"="riverbank"](around:30000,${latitude},${longitude});way["water"~"lake|pond|reservoir"](around:30000,${latitude},${longitude});relation["natural"="water"](around:30000,${latitude},${longitude}););out body;>;out skel qt;`;
-        const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: `data=${encodeURIComponent(query)}` });
-        const data = await res.json();
-        const waterBodiesList: { name: string; lat: number; lon: number; type: string }[] = [];
-        const nodes: Record<number, { lat: number; lon: number }> = {};
-        data.elements.forEach((el: { type: string; id: number; lat?: number; lon?: number }) => { if (el.type === 'node' && el.lat && el.lon) nodes[el.id] = { lat: el.lat, lon: el.lon }; });
-        data.elements.forEach((el: { type: string; id: number; tags?: Record<string, string>; nodes?: number[] }) => {
-          if (el.type === 'way' && el.tags && el.nodes && el.nodes.length > 0) {
-            const name = el.tags.name || el.tags['name:en']; if (!name) return;
-            const waterType = el.tags.water || el.tags.natural || el.tags.waterway || 'water';
-            const firstNode = nodes[el.nodes[0]];
-            if (firstNode) waterBodiesList.push({ name, lat: firstNode.lat, lon: firstNode.lon, type: waterType });
-          }
-        });
-        const toRad = (d: number) => d * Math.PI / 180;
-        const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => { const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2; return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); };
-        const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDist(latitude, longitude, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
-        setNearbyWater(withDist);
-      } catch { setNearbyError('Couldn\'t fetch nearby water. Try again.'); }
-      setNearbyLoading(false);
-      setHasSearched(true);
-    }, () => { setNearbyError('Location permission denied.'); setNearbyLoading(false); setHasSearched(true); });
+    setView('wizard');
   }, []);
 
-  const searchByZip = useCallback(async () => {
-    if (!zipCode || zipCode.length < 5) { setZipError('Enter a valid zip code.'); return; }
-    setZipLoading(true); setZipError(''); setNearbyWater([]);
-    try {
-      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${zipCode}+USA&limit=1`);
-      const geoData = await geoRes.json();
-      if (!geoData.length) { setZipError('Couldn\'t find that location.'); setZipLoading(false); return; }
-      const { lat, lon } = geoData[0];
-      const query = `[out:json][timeout:25];(way["natural"="water"](around:30000,${lat},${lon});way["waterway"="riverbank"](around:30000,${lat},${lon});way["water"~"lake|pond|reservoir"](around:30000,${lat},${lon});relation["natural"="water"](around:30000,${lat},${lon}););out body;>;out skel qt;`;
-      const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: `data=${encodeURIComponent(query)}` });
-      const data = await res.json();
-      const waterBodiesList: { name: string; lat: number; lon: number; type: string }[] = [];
-      const nodes: Record<number, { lat: number; lon: number }> = {};
-      data.elements.forEach((el: { type: string; id: number; lat?: number; lon?: number }) => { if (el.type === 'node' && el.lat && el.lon) nodes[el.id] = { lat: el.lat, lon: el.lon }; });
-      data.elements.forEach((el: { type: string; id: number; tags?: Record<string, string>; nodes?: number[] }) => {
-        if (el.type === 'way' && el.tags && el.nodes && el.nodes.length > 0) {
-          const name = el.tags.name || el.tags['name:en']; if (!name) return;
-          const waterType = el.tags.water || el.tags.natural || el.tags.waterway || 'water';
-          const firstNode = nodes[el.nodes[0]];
-          if (firstNode) waterBodiesList.push({ name, lat: firstNode.lat, lon: firstNode.lon, type: waterType });
-        }
-      });
+  // Zero-friction "On the Bank" mode: no manual conditions form.
+  // Auto-detects time of day, snaps to nearest saved water body if within 5mi,
+  // auto-pulls weather, and drops straight into recommendations.
+  const startOnTheBank = useCallback(() => {
+    const hour = new Date().getHours();
+    const time = hour < 11 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    setState(prev => ({ ...prev, time, locName: prev.locName || 'Your Current Spot' }));
+    setView('workspace');
+    setActiveTab('recommendations');
+
+    if (!navigator.geolocation) { loadWeather(); return; }
+
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const { latitude, longitude } = pos.coords;
       const toRad = (d: number) => d * Math.PI / 180;
-      const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => { const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2; return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); };
-      const latNum = parseFloat(lat); const lonNum = parseFloat(lon);
-      const withDist = waterBodiesList.map(w => ({ ...w, distance: calcDist(latNum, lonNum, w.lat, w.lon) })).sort((a, b) => a.distance - b.distance).slice(0, 15);
-      setNearbyWater(withDist);
-      setHasSearched(true);
-    } catch { setZipError('Search failed. Try again.'); }
-    setZipLoading(false);
-  }, [zipCode]);
+      const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const R = 3959; const dLat = toRad(lat2 - lat1); const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+      const nearest = waterBodies
+        .filter(w => w.latitude && w.longitude)
+        .map(w => ({ w, dist: calcDist(latitude, longitude, w.latitude as number, w.longitude as number) }))
+        .sort((a, b) => a.dist - b.dist)[0];
+
+      setState(prev => ({
+        ...prev,
+        locLat: latitude,
+        locLon: longitude,
+        loc: nearest && nearest.dist < 5 ? nearest.w.key : null,
+        locName: nearest && nearest.dist < 5 ? nearest.w.name : 'Your Current Spot',
+      }));
+      loadWeather();
+    }, () => { loadWeather(); });
+  }, [waterBodies, loadWeather]);
+
+  const searchByZip = useCallback(() => {
+    setView('wizard');
+  }, []);
 
   const adminLogin = () => { if (adminPw === 'castmaster2025') { setAdminAuthed(true); setAdminMsg(null); } else { setAdminPw(''); setAdminMsg({ text: 'Wrong password', type: 'error' }); } };
   const deleteAdminLake = async (id: string) => { await supabase.from('admin_lakes').delete().eq('id', id); loadAdminLakes(); };
@@ -259,104 +236,101 @@ export default function App() {
     );
   };
 
-  // ── DISCOVERY SCREEN ────────────────────────────────────────────────
+  // ── HOME DASHBOARD (6-tile grid) ──────────────────────────────────────
   const renderDiscovery = () => (
-    <div className="animate-fade-up text-center pb-6">
-      {/* Nova hero */}
-      <div className="pt-12 pb-8">
+    <div className="animate-fade-up pb-6">
+      <div className="pt-12 pb-8 text-center">
         <div className="text-[#7CCBE8] text-2xl mb-3 tracking-widest select-none">✦</div>
         <div className="font-display text-[52px] tracking-[5px] text-[#BAE8FF] leading-none nova-glow">Novacast</div>
         <div className="text-[11px] text-[#A8C8D8] tracking-[4px] uppercase mt-3 mb-1">Your Fishing Mentor</div>
-        <div className="text-[11px] text-[#4A6878] tracking-[1px]">STL Area · {currentMonth}</div>
+        <div className="text-[11px] text-[#4A6878] tracking-[1px]">{currentMonth}</div>
       </div>
 
-      {/* Seasonal tip */}
-      <div className="border-l-2 border-[#1A3346] px-4 py-2 text-left mb-8 mx-2">
-        <div className="text-[11px] uppercase tracking-[2px] text-[#4A6878] mb-1 font-semibold">This Month</div>
-        <div className="text-sm text-[#A8C8D8] leading-relaxed">{getMonthBanner()}</div>
+      <div className="grid grid-cols-2 gap-3">
+        <button onClick={() => setView('recon')} className="text-left bg-[#0c1822] border border-[#1A3346] rounded-2xl p-5 cursor-pointer hover:border-[rgba(186,232,255,0.3)] transition-all">
+          <MapPin className="w-6 h-6 text-[#7CCBE8] mb-6" />
+          <div className="font-display text-lg tracking-wide text-[#C8E4F0] mb-1">Recon</div>
+          <div className="text-xs text-[#4A6878] leading-relaxed">Live map. Find water near you, right now.</div>
+        </button>
+
+        <button onClick={() => setView('location')} className="text-left bg-[#0c1822] border border-[rgba(230,180,90,0.25)] rounded-2xl p-5 cursor-pointer hover:border-[rgba(230,180,90,0.5)] transition-all">
+          <FileText className="w-6 h-6 text-[#E6B45A] mb-6" />
+          <div className="font-display text-lg tracking-wide text-[#C8E4F0] mb-1">Game Plan</div>
+          <div className="text-xs text-[#4A6878] leading-relaxed">Tell us conditions, get the bait first.</div>
+        </button>
+
+        <button onClick={startOnTheBank} className="text-left bg-[#0c1822] border border-[#1A3346] rounded-2xl p-5 cursor-pointer hover:border-[rgba(186,232,255,0.3)] transition-all">
+          <Clock className="w-6 h-6 text-[#7CCBE8] mb-6" />
+          <div className="font-display text-lg tracking-wide text-[#C8E4F0] mb-1">On the Bank</div>
+          <div className="text-xs text-[#4A6878] leading-relaxed">Here now. What do I throw?</div>
+        </button>
+
+        <button onClick={() => { setView('workspace'); setActiveTab('tacklebox'); }} className="text-left bg-[#0c1822] border border-[#1A3346] rounded-2xl p-5 cursor-pointer hover:border-[rgba(186,232,255,0.3)] transition-all">
+          <Heart className="w-6 h-6 text-[#7CCBE8] mb-6" />
+          <div className="font-display text-lg tracking-wide text-[#C8E4F0] mb-1">Tacklebox</div>
+          <div className="text-xs text-[#4A6878] leading-relaxed">Everything you've saved. Lures, spots, catches.</div>
+        </button>
+
+        <button onClick={() => { setView('workspace'); setActiveTab('learn'); }} className="text-left bg-[#0c1822] border border-[#1A3346] rounded-2xl p-5 cursor-pointer hover:border-[rgba(186,232,255,0.3)] transition-all">
+          <BookOpen className="w-6 h-6 text-[#7CCBE8] mb-6" />
+          <div className="font-display text-lg tracking-wide text-[#C8E4F0] mb-1">Learn &amp; Fun</div>
+          <div className="text-xs text-[#4A6878] leading-relaxed">Knots, rigs, colors — and a lure library.</div>
+        </button>
+
+        <button onClick={() => setView('walmartrun')} className="text-left bg-[#0c1822] border border-[#1A3346] rounded-2xl p-5 cursor-pointer hover:border-[rgba(186,232,255,0.3)] transition-all">
+          <ShoppingCart className="w-6 h-6 text-[#7CCBE8] mb-6" />
+          <div className="font-display text-lg tracking-wide text-[#C8E4F0] mb-1">Walmart Run</div>
+          <div className="text-xs text-[#4A6878] leading-relaxed">Build a real list, not the same five things.</div>
+        </button>
       </div>
 
-      {/* Find water */}
+      <div className="mt-10 text-[10px] text-[#1A3346] text-center">Powered by orionae.dev</div>
+    </div>
+  );
+
+  // ── GAME PLAN: LOCATION SEARCH (Find Near Me / Zip / Browse) ─────────
+  const renderLocationSearch = () => (
+    <div className="animate-fade-up text-center pb-6 pt-8">
+      <button onClick={() => setView('discovery')} className="flex items-center gap-1 text-[#4A6878] hover:text-[#7CCBE8] text-xs transition-colors bg-transparent border-none cursor-pointer mb-6">
+        <ChevronLeft className="w-3.5 h-3.5" /> Back
+      </button>
+
       <div className="text-[10px] uppercase tracking-[3px] text-[#4A6878] mb-4 font-semibold">Where are you fishing?</div>
 
       <button
         onClick={startWithGPS}
-        disabled={nearbyLoading}
-        className="w-full py-4 bg-[rgba(186,232,255,0.06)] border border-[#1A3346] rounded-2xl text-[#BAE8FF] text-sm font-semibold cursor-pointer mb-3 flex items-center justify-center gap-2.5 hover:bg-[rgba(186,232,255,0.1)] hover:border-[rgba(186,232,255,0.3)] disabled:opacity-40 transition-all animate-pulse-border"
+        className="w-full py-4 bg-[rgba(186,232,255,0.06)] border border-[#1A3346] rounded-2xl text-[#BAE8FF] text-sm font-semibold cursor-pointer mb-3 flex items-center justify-center gap-2.5 hover:bg-[rgba(186,232,255,0.1)] hover:border-[rgba(186,232,255,0.3)] transition-all animate-pulse-border"
       >
         <Navigation className="w-4 h-4" />
-        {nearbyLoading ? 'Finding water near you...' : 'Find Near Me'}
+        Find Near Me
       </button>
-      {nearbyError && <div className="text-[#FC8181] text-xs mb-3">{nearbyError}</div>}
 
       <div className="flex gap-2 mb-3">
         <input
           type="text"
           value={zipCode}
-          onChange={e => { const v = e.target.value; if (/^\d*$/.test(v)) { setZipCode(v); if (v.length === 5) searchByZip(); } }}
-          placeholder="Zip code"
-          maxLength={5}
+          onChange={e => setZipCode(e.target.value)}
+          placeholder="City, address, or zip code"
           className="flex-1 bg-[#0c1822] border border-[#1A3346] rounded-xl text-[#C8E4F0] text-sm px-4 py-3.5 outline-none focus:border-[rgba(186,232,255,0.4)] placeholder-[#4A6878] transition-colors"
           onKeyDown={e => e.key === 'Enter' && searchByZip()}
         />
-        <button onClick={searchByZip} disabled={zipLoading} className="px-5 py-3.5 bg-[#0c1822] border border-[#1A3346] rounded-xl text-[#7CCBE8] cursor-pointer hover:bg-[rgba(186,232,255,0.06)] hover:border-[rgba(186,232,255,0.3)] disabled:opacity-40 transition-all">
+        <button onClick={searchByZip} className="px-5 py-3.5 bg-[#0c1822] border border-[#1A3346] rounded-xl text-[#7CCBE8] cursor-pointer hover:bg-[rgba(186,232,255,0.06)] hover:border-[rgba(186,232,255,0.3)] transition-all">
           <Search className="w-4 h-4" />
         </button>
       </div>
-      {zipError && <div className="text-[#FC8181] text-xs mb-3">{zipError}</div>}
+    </div>
+  );
 
-      {nearbyWater.length > 0 && (
-        <div className="text-left mb-6">
-          <div className="text-[10px] uppercase tracking-[2px] text-[#4A6878] mb-3 font-semibold">{nearbyWater.length} spots near you</div>
-          {nearbyWater.map((w, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                setState(prev => ({ ...prev, loc: null, locName: w.name, locLat: w.lat, locLon: w.lon }));
-                setView('workspace');
-                setActiveTab('recommendations');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className="w-full text-left bg-[#0c1822] border border-[#1A3346] rounded-xl p-3 mb-2 last:mb-0 cursor-pointer hover:border-[rgba(186,232,255,0.3)] transition-all"
-            >
-              <div className="font-semibold text-sm text-[#C8E4F0] mb-1">{w.name}</div>
-              <div className="text-xs text-[#4A6878] flex items-center gap-1.5">
-                <MapPin className="w-3 h-3" /> {w.type} · {w.distance.toFixed(1)} mi away
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-      {hasSearched && !nearbyLoading && !zipLoading && !nearbyError && !zipError && nearbyWater.length === 0 && (
-        <div className="text-[#4A6878] text-xs mb-3">No known water found nearby. Try a different zip or browse STL lakes below.</div>
-      )}
-
-      <div className="text-[10px] text-[#4A6878] mb-3 tracking-wider">— or —</div>
-
-      <button
-        onClick={() => setView('wizard')}
-        className="w-full py-4 bg-[#0c1822] border border-[#1A3346] rounded-2xl text-[#A8C8D8] text-sm font-semibold cursor-pointer flex items-center justify-center gap-2.5 hover:border-[rgba(186,232,255,0.25)] hover:text-[#C8E4F0] transition-all"
-      >
-        <MapPin className="w-4 h-4" /> Browse STL Lakes
+  // ── COMING SOON PLACEHOLDER (Walmart Run) ──────────────────────
+  const renderComingSoon = (title: string, tagline: string) => (
+    <div className="animate-fade-up pt-12 pb-6 text-center">
+      <button onClick={() => setView('discovery')} className="flex items-center gap-1 text-[#4A6878] hover:text-[#7CCBE8] text-xs transition-colors bg-transparent border-none cursor-pointer mb-8 mx-auto w-fit">
+        <ChevronLeft className="w-3.5 h-3.5" /> Back
       </button>
-
-      {/* Quick links */}
-      <div className="mt-10 flex justify-center gap-6">
-        <button
-          onClick={() => { setState(prev => prev); setView('workspace'); setActiveTab('tacklebox'); }}
-          className="text-[#4A6878] hover:text-[#7CCBE8] transition-colors flex items-center gap-1.5 text-sm"
-        >
-          <Heart className="w-4 h-4" /> My Tacklebox
-        </button>
-        <button
-          onClick={() => { setView('workspace'); setActiveTab('learn'); }}
-          className="text-[#4A6878] hover:text-[#7CCBE8] transition-colors flex items-center gap-1.5 text-sm"
-        >
-          <BookOpen className="w-4 h-4" /> Reference
-        </button>
-      </div>
-
-      <div className="mt-10 text-[10px] text-[#1A3346]">Powered by orionae.dev</div>
+      <div className="text-[#7CCBE8] text-2xl mb-3 tracking-widest select-none">✦</div>
+      <div className="font-display text-[32px] tracking-[3px] text-[#BAE8FF] leading-none nova-glow mb-3">{title}</div>
+      <div className="text-[11px] uppercase tracking-[3px] text-[#4A6878] mb-6">Coming Soon</div>
+      <div className="text-sm text-[#A8C8D8] leading-relaxed max-w-[320px] mx-auto">{tagline}</div>
     </div>
   );
 
@@ -504,7 +478,7 @@ export default function App() {
               <div className="text-[11px] text-[#A8C8D8] font-semibold mt-1">{w.price}</div>
             </div>
           ))}
-          <div className="text-[11px] text-[#4A6878] mt-2">Findable in the fishing aisle at most STL-area Walmart stores.</div>
+          <div className="text-[11px] text-[#4A6878] mt-2">Findable in the fishing aisle at most Walmart stores.</div>
         </div>
 
         {/* Pro tip */}
@@ -640,6 +614,17 @@ export default function App() {
   return (
     <div className="relative z-10 max-w-[480px] mx-auto px-4" onClick={() => setTooltipOpen(null)}>
       {view === 'discovery' && renderDiscovery()}
+
+      {view === 'location' && renderLocationSearch()}
+
+      {view === 'recon' && (
+        <NovaCastRecon onBack={() => setView('discovery')} waterBodies={waterBodies} />
+      )}
+
+      {view === 'walmartrun' && renderComingSoon(
+        'Walmart Run',
+        "A standalone shopping list pulled from your Tacklebox. Not built as its own screen yet — for now, grab your list from the Walmart card inside Game Plan."
+      )}
 
       {view === 'wizard' && (
         <NovaCastWizard
