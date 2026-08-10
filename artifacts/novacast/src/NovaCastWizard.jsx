@@ -193,9 +193,16 @@ export default function NovaCastWizard({ onComplete, waterBodies = [], customLak
   const searchByCity = useCallback(async () => {
     if (!cityInput || cityInput.trim().length < 2) { setCityError('Enter a city or area name.'); return; }
     setCityLoading(true); setCityError(''); setNearbyResults([]); setGpsUsed(false);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const query = encodeURIComponent(cityInput.trim() + ' Missouri USA');
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1&countrycodes=us`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1&countrycodes=us`, { headers: { Accept: 'application/json' }, signal: controller.signal });
+      if (!res.ok) {
+        throw new Error(res.status === 429
+          ? 'Location search is busy right now. Try again in a moment.'
+          : `Location search returned an error (${res.status}). Try again.`);
+      }
       const data = await res.json();
       if (!data.length) { setCityError("Couldn't find that location. Try another city."); setCityLoading(false); return; }
       const lat = parseFloat(data[0].lat);
@@ -204,7 +211,15 @@ export default function NovaCastWizard({ onComplete, waterBodies = [], customLak
       const results = buildNearbyList(lat, lon);
       setNearbyResults(results);
       setGpsUsed(true);
-    } catch { setCityError('Search failed. Check your connection and try again.'); }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setCityError('That took too long to respond. Try again.');
+      } else {
+        setCityError(err instanceof Error && err.message ? err.message : 'Search failed. Check your connection and try again.');
+      }
+    } finally {
+      clearTimeout(timer);
+    }
     setCityLoading(false);
   }, [cityInput, waterBodies, adminLakes]);
 

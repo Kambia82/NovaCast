@@ -27,9 +27,29 @@ const calcDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+async function fetchWithTimeout(url: string, options: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('That took too long to respond. Try again.');
+    }
+    throw new Error('Network error — check your connection and try again.');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchNearbyWater(lat: number, lon: number): Promise<OsmWaterBody[]> {
   const query = `[out:json][timeout:25];(way["natural"="water"](around:24000,${lat},${lon});way["waterway"="riverbank"](around:24000,${lat},${lon});way["water"~"lake|pond|reservoir"](around:24000,${lat},${lon});relation["natural"="water"](around:24000,${lat},${lon}););out body;>;out skel qt;`;
-  const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: `data=${encodeURIComponent(query)}` });
+  const res = await fetchWithTimeout('https://overpass-api.de/api/interpreter', { method: 'POST', body: `data=${encodeURIComponent(query)}` }, 20000);
+  if (!res.ok) {
+    throw new Error(res.status === 429
+      ? 'Map data service is busy right now. Try again in a moment.'
+      : `Map data service returned an error (${res.status}). Try again.`);
+  }
   const data = await res.json();
   const nodes: Record<number, { lat: number; lon: number }> = {};
   data.elements.forEach((el: any) => { if (el.type === 'node' && el.lat && el.lon) nodes[el.id] = { lat: el.lat, lon: el.lon }; });
@@ -70,8 +90,8 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
         const results = await fetchNearbyWater(lat, lon);
         setNearby(results);
         setReconState('map');
-      } catch {
-        setError("Couldn't reach map data. Try again.");
+      } catch (err) {
+        setError(err instanceof Error && err.message ? err.message : "Couldn't reach map data. Try again.");
         setReconState('gate');
       }
     }, () => {
@@ -84,15 +104,22 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
     if (!manualQuery.trim()) return;
     setManualLoading(true); setError('');
     try {
-      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(manualQuery)}&limit=1`);
+      const geoRes = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(manualQuery)}&limit=1`, { headers: { Accept: 'application/json' } }, 15000);
+      if (!geoRes.ok) {
+        throw new Error(geoRes.status === 429
+          ? 'Place search is busy right now. Try again in a moment.'
+          : `Place search returned an error (${geoRes.status}). Try again.`);
+      }
       const geoData = await geoRes.json();
-      if (!geoData.length) { setError("Couldn't find that place."); setManualLoading(false); return; }
+      if (!geoData.length) { setError("Couldn't find that place. Try a different search."); setManualLoading(false); return; }
       const lat = parseFloat(geoData[0].lat), lon = parseFloat(geoData[0].lon);
       setUserPos({ lat, lon });
       const results = await fetchNearbyWater(lat, lon);
       setNearby(results);
       setReconState('map');
-    } catch { setError('Search failed. Try again.'); }
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : 'Search failed. Try again.');
+    }
     setManualLoading(false);
   }, [manualQuery]);
 

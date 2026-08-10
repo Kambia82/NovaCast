@@ -342,6 +342,94 @@ const KNOTS = [
   },
 ];
 
+const LINE_TYPES = [
+  {
+    name: 'Monofilament',
+    icon: '🧵',
+    difficulty: 'Beginner',
+    diffColor: '#00e5c7',
+    price: '$4–$10 per spool',
+    summary: 'A single extruded strand of nylon. The original fishing line and still the most forgiving — it stretches, floats, and ties easily. A solid all-around choice while you\'re learning.',
+    traits: [
+      { label: 'Stretch', value: 'High — absorbs shock and hook-set force, forgives mistakes' },
+      { label: 'Buoyancy', value: 'Floats — keeps line on the surface, good for topwater' },
+      { label: 'Visibility', value: 'More visible underwater than fluorocarbon' },
+      { label: 'Sensitivity', value: 'Lower — the stretch that helps beginners also dulls bite feel' },
+    ],
+    pros: ['Cheapest option', 'Easiest to tie and handle', 'Forgiving on hook-sets — less likely to rip hooks free', 'Floats, which helps topwater baits walk and pop correctly', 'Manageable on any reel, spinning or baitcast'],
+    cons: ['Stretch costs you sensitivity and hook-set power at distance', 'Absorbs water and degrades faster — needs more frequent changing', 'More visible in clear water than fluorocarbon', 'Cheaper spools have more memory (coiling)'],
+    bestFor: 'Beginners on any reel, topwater baits, crankbaits (stretch protects treble hooks), general all-purpose spool',
+    technique: 'Good as your main line while you\'re learning to cast and fish anything. Stays a smart choice long-term for topwater and crankbaits, where the stretch and floatation actually help the bait work right.',
+  },
+  {
+    name: 'Fluorocarbon',
+    icon: '💧',
+    difficulty: 'Intermediate',
+    diffColor: '#c0c8d8',
+    price: '$8–$20 per spool',
+    summary: 'A denser, single-strand line whose refractive index is close to water\'s — meaning it\'s much harder for fish to see underwater. Sinks instead of floating, and holds up well against rocks and cover.',
+    traits: [
+      { label: 'Underwater visibility', value: 'Very low — the main reason anglers choose it in clear water' },
+      { label: 'Sinking behavior', value: 'Sinks — good for getting baits down, less ideal for topwater' },
+      { label: 'Stretch / sensitivity', value: 'Low stretch, high sensitivity — you feel more of what\'s happening at the bait' },
+      { label: 'Abrasion resistance', value: 'Strong — holds up well against rock, wood, and shell beds' },
+    ],
+    pros: ['Nearly invisible underwater — best choice for line-shy fish in clear water', 'Sinks, helping baits reach depth and stay tight to the bottom', 'More sensitive than mono — easier to feel subtle bites', 'Better abrasion resistance than mono'],
+    cons: ['More expensive than mono', 'Stiffer — more prone to coiling and harder to tie for beginners', 'Sinking behavior works against topwater presentations', 'Can be more prone to nicks turning into break-offs if not checked'],
+    bestFor: 'Clear water, finesse presentations, jigs and Texas rigs where bite detection and invisibility matter most',
+    technique: 'Use as a straight main line on spinning reels for finesse work, or as a leader tied to braid when you want braid\'s strength and sensitivity but need to hide the line near the bait.',
+  },
+  {
+    name: 'Braided Line',
+    icon: '🪢',
+    difficulty: 'Intermediate',
+    diffColor: '#c0c8d8',
+    price: '$10–$25 per spool',
+    summary: 'Multiple strands of synthetic fiber (often Spectra or Dyneema) woven together into one line. Extremely strong for its diameter, with essentially no stretch.',
+    traits: [
+      { label: 'Construction', value: 'Braided/woven synthetic fibers — no single strand, very durable' },
+      { label: 'Stretch', value: 'Very low — nearly direct connection between rod tip and bait' },
+      { label: 'Sensitivity', value: 'Excellent — you feel everything, including light bites and bottom contact' },
+      { label: 'Strength-to-diameter', value: 'Very high — 20 lb braid can be as thin as 6–8 lb mono' },
+    ],
+    pros: ['Cuts through grass and light cover instead of hanging up', 'No stretch means hook-sets transmit instantly, even at distance', 'Thin diameter for its strength means more line on the spool and longer casts', 'Doesn\'t degrade from UV or water absorption the way mono does'],
+    cons: ['Highly visible underwater — a liability in clear water without a leader', 'No stretch also means no forgiveness — can pull hooks or bend light hooks on hard strikes', 'More expensive up front', 'Can dig into itself on a reel spool if not spooled correctly'],
+    bestFor: 'Heavy vegetation, matted cover, frogging, flipping and pitching — anywhere you need power and zero stretch',
+    technique: 'Best as a main line for power techniques in heavy cover. Pair with a fluorocarbon or monofilament leader for anything fished in open or clear water, since bare braid near the bait is easy for fish to spot.',
+  },
+];
+
+const LINE_STRENGTH = [
+  { test: '6 lb', note: 'Ultralight finesse — small worms, tiny jigs, panfish. Little margin for horsing a big fish; play it patiently and let the drag work.' },
+  { test: '8 lb', note: 'Light finesse standard — drop shot, shaky head, small crankbaits. A very capable light all-around line for bass.' },
+  { test: '10 lb', note: 'The most common all-purpose bass line — Texas rigs, jerkbaits, and moving baits in clear-to-stained water.' },
+  { test: '12 lb', note: 'A step up for stained water, moderate cover, and slightly heavier baits without going full "heavy cover" line.' },
+  { test: '15 lb', note: 'Moderate cover — jigs, chatterbaits, spinnerbaits, and Texas rigs around scattered wood or grass edges.' },
+  { test: '20 lb+', note: 'Heavy cover and power fishing — flipping mats, pitching docks, frogging. Braid at this rating is common; mono or fluoro this heavy is for real muscle.' },
+];
+
+const LINE_BY_TECHNIQUE = [
+  { technique: 'Texas Rig', recommended: 'Fluorocarbon (10–15 lb)', why: 'Low visibility for finicky bites in open water. Step up to braid with a fluoro leader in thick grass or wood, where abrasion resistance and no-stretch hook-sets matter more than invisibility.' },
+  { technique: 'Spinnerbait', recommended: 'Monofilament or fluorocarbon (12–17 lb)', why: 'Some stretch helps a moving bait stay pinned on a reaction strike. Mono if you want it riding a little higher, fluoro in clearer water.' },
+  { technique: 'Chatterbait', recommended: 'Fluorocarbon (15–17 lb) or braid-to-fluoro leader in cover', why: 'Bladed jigs get bit hard, often in grass — fluoro balances low visibility with backbone; go to a leader when fishing matted vegetation.' },
+  { technique: 'Crankbait', recommended: 'Monofilament (10–14 lb)', why: 'Mono\'s stretch keeps treble hooks pinned instead of ripping free, and it doesn\'t fight a diving bait\'s natural action the way low-stretch braid can.' },
+  { technique: 'Jerkbait', recommended: 'Fluorocarbon (8–12 lb)', why: 'Fluoro\'s slight sink helps suspending jerkbaits hold depth, and low visibility matters since jerkbaits are often fished in clearer water.' },
+  { technique: 'Topwater', recommended: 'Monofilament (10–14 lb), or braid with a mono/fluoro leader', why: 'Mono floats, helping walk-the-dog and popper action stay on the surface. Bare braid tends to pull the nose down.' },
+  { technique: 'Frog (hollow-body)', recommended: 'Braid (40–65 lb)', why: 'Zero stretch to drive a hook through a stiff frog body and heavy vegetation, plus the strength to horse a fish out of matted cover immediately.' },
+  { technique: 'Jig', recommended: 'Fluorocarbon (12–17 lb) in open water, braid-to-fluoro leader in cover', why: 'Jigs are a feel bite — fluoro\'s low stretch and low visibility both help. Move to braid with a leader once the jig goes into wood or matted grass.' },
+  { technique: 'Finesse (drop shot, shaky head, ned rig)', recommended: 'Fluorocarbon (6–8 lb), or braid-to-fluoro leader', why: 'Light, subtle presentations in mostly open or clear water — invisibility and direct bottom feel matter most.' },
+  { technique: 'Heavy vegetation / matted cover', recommended: 'Braid (30–65 lb)', why: 'Near-zero stretch means a hookset actually transmits through thick grass, and thin diameter cuts through vegetation instead of hanging up.' },
+  { technique: 'Clear water', recommended: 'Fluorocarbon, or a fluorocarbon leader on braid', why: 'Fluoro\'s refractive index is close to water, making it much harder for spooky fish to see. Straight braid is very visible in clear water.' },
+  { technique: 'Muddy / stained water', recommended: 'Monofilament or braid, whichever suits the technique', why: 'Visibility matters far less here — pick line based on what the technique needs (stretch, sensitivity, cover), not on hiding the line.' },
+];
+
+const LEADERS = [
+  { title: 'Braid + Fluorocarbon Leader', body: 'The most common combo in bass fishing. Braid as the main line gives zero-stretch sensitivity, thin diameter, and strength; a 2–6 ft fluorocarbon leader tied on gives invisibility right at the lure, where fish actually inspect the line. Common for finesse techniques, jigs, and Texas rigs in clear-to-stained water.' },
+  { title: 'Braid + Monofilament Leader', body: 'Less common for bass, more useful for topwater and some crankbait setups where you still want braid\'s hook-setting power and thin diameter for casting distance, but want the leader itself to float and add a little forgiving stretch right at the lure.' },
+  { title: 'When a Leader Helps', body: 'Clear water where fish are line-shy. Techniques where bite detection matters — jigs, finesse rigs, Texas rigs. Any time you want braid\'s no-stretch hook-set and thin diameter but don\'t want bare braid near the lure.' },
+  { title: 'When It Isn\'t Necessary', body: 'Stained or muddy water, where visibility isn\'t the limiting factor. Fast-moving baits like spinnerbaits and chatterbaits, where line visibility matters less. Straight mono or straight fluoro setups — if you\'re not running braid as your main line, you don\'t need a leader system yet.' },
+];
+
 const BEGINNER_INVENTORY = {
   hardware: [
     { item: 'Hook — EWG (Extra Wide Gap), 3/0', qty: 'Pack of 25', price: '~$4', why: 'The standard hook for Texas-rigged soft plastics. 3/0 is the most versatile size for bass.' },
@@ -400,6 +488,7 @@ export default function NovaCastReference({ onClose, inline = false }) {
   const TABS = [
     { key: 'reels',     label: '🎣 Reels' },
     { key: 'lures',     label: '🪝 Lures' },
+    { key: 'line',      label: '🧵 Line' },
     { key: 'knots',     label: '🪢 Knots' },
     { key: 'inventory', label: '📦 Starter Kit' },
     { key: 'stores',    label: '🛒 Where to Buy' },
@@ -523,6 +612,116 @@ export default function NovaCastReference({ onClose, inline = false }) {
           )}
         </div>
       ))}
+    </div>
+  );
+
+  // ── LINE TAB ──────────────────────────────────────────────────────────────
+  const LineTab = () => (
+    <div>
+      <div style={{ fontSize: '13px', color: '#7a8ea6', marginBottom: '14px', lineHeight: '1.6' }}>
+        What line do you have, what's it good for, and what should you probably tie on next? Start here.
+      </div>
+
+      {LINE_TYPES.map((ln, i) => (
+        <div key={ln.name} style={{ background: '#0f1f3d', border: '1px solid #1e3a5f', borderRadius: '14px', padding: '16px', marginBottom: '10px' }}>
+          <div onClick={() => toggle(`line-${i}`)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <span style={{ fontSize: '22px' }}>{ln.icon}</span>
+              <div>
+                <div style={{ fontWeight: '600', fontSize: '15px', marginBottom: '4px' }}>{ln.name}</div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <DiffBadge label={ln.difficulty} color={ln.diffColor} />
+                  <span style={{ fontSize: '11px', color: '#7a8ea6' }}>{ln.price}</span>
+                </div>
+              </div>
+            </div>
+            {expanded === `line-${i}` ? <ChevronUp size={16} color="#7a8ea6" /> : <ChevronDown size={16} color="#7a8ea6" />}
+          </div>
+
+          {expanded === `line-${i}` && (
+            <div style={{ marginTop: '14px', borderTop: '1px solid #1e3a5f', paddingTop: '14px' }}>
+              <p style={{ fontSize: '13px', color: '#c0c8d8', lineHeight: '1.6', marginBottom: '12px' }}>{ln.summary}</p>
+
+              <div style={{ background: '#152a4f', borderRadius: '10px', padding: '10px', marginBottom: '10px' }}>
+                <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#7a8ea6', fontWeight: '600', marginBottom: '8px' }}>Characteristics</div>
+                {ln.traits.map((t, j) => (
+                  <div key={j} style={{ fontSize: '12px', color: '#c0c8d8', marginBottom: '4px', lineHeight: '1.4' }}>
+                    <strong style={{ color: '#e8f0f8' }}>{t.label}:</strong> {t.value}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                <div style={{ background: 'rgba(0,229,199,0.06)', border: '1px solid rgba(0,229,199,0.2)', borderRadius: '10px', padding: '10px' }}>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#00e5c7', fontWeight: '600', marginBottom: '6px' }}>Advantages</div>
+                  {ln.pros.map((p, j) => <div key={j} style={{ fontSize: '12px', color: '#c0c8d8', marginBottom: '3px', lineHeight: '1.4' }}>✓ {p}</div>)}
+                </div>
+                <div style={{ background: 'rgba(224,92,92,0.06)', border: '1px solid rgba(224,92,92,0.2)', borderRadius: '10px', padding: '10px' }}>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#e05c5c', fontWeight: '600', marginBottom: '6px' }}>Disadvantages</div>
+                  {ln.cons.map((c, j) => <div key={j} style={{ fontSize: '12px', color: '#c0c8d8', marginBottom: '3px', lineHeight: '1.4' }}>✗ {c}</div>)}
+                </div>
+              </div>
+
+              <div style={{ background: '#152a4f', borderRadius: '10px', padding: '10px', marginBottom: '10px' }}>
+                <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#7a8ea6', fontWeight: '600', marginBottom: '6px' }}>Best For</div>
+                <div style={{ fontSize: '12px', color: '#c0c8d8' }}>{ln.bestFor}</div>
+              </div>
+
+              <div style={{ background: 'rgba(192,200,216,0.06)', border: '1px solid rgba(192,200,216,0.2)', borderRadius: '10px', padding: '10px' }}>
+                <div style={{ fontSize: '12px', color: '#c0c8d8', lineHeight: '1.5' }}>
+                  <strong style={{ color: '#fff' }}>Technique notes:</strong> {ln.technique}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div style={{ marginTop: '18px', marginBottom: '10px' }}>
+        <SectionHeader label="Line Strength / Pound Test" />
+        <div style={{ fontSize: '12px', color: '#c0c8d8', lineHeight: '1.6', marginBottom: '10px' }}>
+          Pound test is the line's rated <strong style={{ color: '#e8f0f8' }}>breaking strength</strong> under a steady pull — not a hard cap on the size of fish it can land. Skilled anglers regularly land fish well over their line's rated strength using rod give, drag, and playing the fish out; a bad hook-set can just as easily snap heavy line on a small fish. Pick pound test for the cover and lure weight you're fishing, not the fish you're hoping for.
+        </div>
+        {LINE_STRENGTH.map((row, i) => (
+          <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: '#0f1f3d', border: '1px solid #1e3a5f', borderRadius: '10px', padding: '10px 12px', marginBottom: '6px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '700', color: '#00e5c7', minWidth: '52px' }}>{row.test}</div>
+            <div style={{ fontSize: '12px', color: '#c0c8d8', lineHeight: '1.5' }}>{row.note}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: '18px', marginBottom: '10px' }}>
+        <SectionHeader label="Line Selection by Technique" />
+        <div style={{ fontSize: '12px', color: '#c0c8d8', lineHeight: '1.6', marginBottom: '10px' }}>
+          Practical starting points, not rules. Water clarity, cover, and your own confidence with a line type all matter — plenty of good anglers break these on purpose.
+        </div>
+        {LINE_BY_TECHNIQUE.map((row, i) => (
+          <div key={i} style={{ background: '#0f1f3d', border: '1px solid #1e3a5f', borderRadius: '10px', padding: '10px 12px', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#e8f0f8' }}>{row.technique}</div>
+              <div style={{ fontSize: '11px', color: '#00e5c7', fontWeight: '600' }}>{row.recommended}</div>
+            </div>
+            <div style={{ fontSize: '12px', color: '#7a8ea6', lineHeight: '1.5' }}>{row.why}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: '18px', marginBottom: '10px' }}>
+        <SectionHeader label="Leaders" />
+        {LEADERS.map((l, i) => (
+          <div key={i} style={{ background: '#0f1f3d', border: '1px solid #1e3a5f', borderRadius: '10px', padding: '10px 12px', marginBottom: '6px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '600', color: '#e8f0f8', marginBottom: '4px' }}>{l.title}</div>
+            <div style={{ fontSize: '12px', color: '#c0c8d8', lineHeight: '1.5' }}>{l.body}</div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={() => setActiveTab('knots')}
+        style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', background: 'rgba(0,229,199,0.08)', border: '1px solid rgba(0,229,199,0.25)', borderRadius: '10px', padding: '12px 14px', marginTop: '4px', cursor: 'pointer', color: '#00e5c7', fontSize: '13px', fontWeight: '600', textAlign: 'left' }}
+      >
+        🪢 Tying it on? See the Knots tab — Palomar and Improved Clinch for hooks and lures, Double Uni for joining braid to a leader.
+      </button>
     </div>
   );
 
@@ -717,6 +916,7 @@ export default function NovaCastReference({ onClose, inline = false }) {
 
       {activeTab === 'reels'     && <ReelsTab />}
       {activeTab === 'lures'     && <LuresTab />}
+      {activeTab === 'line'      && <LineTab />}
       {activeTab === 'knots'     && <KnotsTab />}
       {activeTab === 'inventory' && <InventoryTab />}
       {activeTab === 'stores'    && <StoresTab />}

@@ -5,7 +5,8 @@ import NovaCastTacklebox from './NovaCastTacklebox';
 import NovaCastRecon from './NovaCastRecon';
 import ConditionsPanel from './ConditionsPanel';
 
-import { supabase } from './lib/supabase';
+import { fetchWaterBodies, fetchAdminLakes, fetchCustomLakes, deleteAdminLake as deleteAdminLakeRecord } from './services/database';
+import type { WaterBodyRecord, AdminLakeRecord, CustomLakeRecord } from './services/database';
 import {
   getFishMovement,
   applyRecentWeatherToDepth,
@@ -31,13 +32,9 @@ import {
 } from 'lucide-react';
 
 
-interface WaterBodyRow {
-  id: string; key: string; name: string; location: string; region: string;
-  type: string; species: string[]; tags: { label: string; color: string }[];
-  latitude: number | null; longitude: number | null; spots: Spot[] | null; special_regs: string | null;
-}
-interface CustomLakeRow { id: string; name: string; location: string; type: string; notes: string; }
-interface AdminLakeRow { id: string; name: string; location: string; region: string; type: string; species: string[]; spots: Spot[]; special_regs: string; notes: string; }
+type WaterBodyRow = WaterBodyRecord;
+type CustomLakeRow = CustomLakeRecord;
+type AdminLakeRow = AdminLakeRecord;
 
 interface WizardState {
   loc: string | null; locName: string | null; locLat: number | null; locLon: number | null;
@@ -106,9 +103,9 @@ export default function App() {
     });
   };
 
-  const loadWaterBodies = async () => { const { data } = await supabase.from('water_bodies').select('*').order('name'); if (data) setWaterBodies(data as WaterBodyRow[]); };
-  const loadCustomLakes = async () => { const { data } = await supabase.from('custom_lakes').select('*').order('created_at', { ascending: false }); if (data) setCustomLakes(data as CustomLakeRow[]); };
-  const loadAdminLakes = async () => { const { data } = await supabase.from('admin_lakes').select('*').order('created_at', { ascending: false }); if (data) setAdminLakes(data as AdminLakeRow[]); };
+  const loadWaterBodies = async () => { const data = await fetchWaterBodies(); setWaterBodies(data); };
+  const loadCustomLakes = async () => { const data = await fetchCustomLakes(); setCustomLakes(data); };
+  const loadAdminLakes = async () => { const data = await fetchAdminLakes(); setAdminLakes(data); };
 
   const resetAll = () => {
     setState({ loc: null, locName: null, locLat: null, locLon: null, time: null, sky: null, water: null, temp: null, wind: null, pressure: null, fish: null, reel: null, recentWeather: [] });
@@ -196,7 +193,7 @@ export default function App() {
   }, []);
 
   const adminLogin = () => { if (adminPw === 'castmaster2025') { setAdminAuthed(true); setAdminMsg(null); } else { setAdminPw(''); setAdminMsg({ text: 'Wrong password', type: 'error' }); } };
-  const deleteAdminLake = async (id: string) => { await supabase.from('admin_lakes').delete().eq('id', id); loadAdminLakes(); };
+  const deleteAdminLake = async (id: string) => { await deleteAdminLakeRecord(id); loadAdminLakes(); };
 
   const getLocSpots = (): Spot[] => {
     const dbBody = waterBodies.find(w => w.key === state.loc); if (dbBody?.spots && dbBody.spots.length > 0) return dbBody.spots;
