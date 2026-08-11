@@ -9,7 +9,13 @@ interface CuratedWaterBody {
   species: string[];
   special_regs: string | null;
 }
-interface OsmWaterBody { name: string; lat: number; lon: number; type: string; distance: number; }
+interface OsmWaterBody {
+  name: string; lat: number; lon: number; type: string; distance: number;
+  source?: 'osm' | '3dhp';
+  isNamed?: boolean;
+  areaAcres?: number | null;
+  geometry?: any;
+}
 
 interface Props {
   onBack: () => void;
@@ -65,6 +71,55 @@ async function fetchNearbyWater(lat: number, lon: number): Promise<OsmWaterBody[
   return list.sort((a, b) => a.distance - b.distance).slice(0, 25);
 }
 
+// NovaCast's own Cloud Function — proxies to USGS 3DHP server-side so the
+// browser never depends on that service's reachability/CORS directly.
+const NEARBY_WATER_FN_URL = 'https://us-central1-novacast-26e4c.cloudfunctions.net/nearbyWater';
+
+async function fetch3DHPWater(lat: number, lon: number): Promise<OsmWaterBody[]> {
+  const res = await fetchWithTimeout(`${NEARBY_WATER_FN_URL}?lat=${lat}&lon=${lon}`, {}, 15000);
+  if (!res.ok) throw new Error(`3DHP proxy returned an error (${res.status}).`);
+  const data = await res.json();
+  const features: any[] = Array.isArray(data.features) ? data.features : [];
+  return features
+    .filter(f => typeof f.lat === 'number' && typeof f.lon === 'number')
+    .map(f => ({
+      name: f.name || `Unnamed ${f.featureType || 'water'}`,
+      lat: f.lat,
+      lon: f.lon,
+      type: f.featureType || 'water',
+      distance: typeof f.distanceMi === 'number' ? f.distanceMi : calcDist(lat, lon, f.lat, f.lon),
+      source: '3dhp' as const,
+      isNamed: !!f.isNamed,
+      areaAcres: typeof f.areaAcres === 'number' ? f.areaAcres : null,
+      geometry: f.geometry ?? null,
+    }));
+}
+
+// 3DHP is the primary discovery source; Overpass is a silent fallback if the
+// 3DHP proxy errors or comes back empty. The caller never needs to know
+// which one actually produced the results.
+async function discoverNearbyWater(lat: number, lon: number): Promise<OsmWaterBody[]> {
+  let results: OsmWaterBody[] = [];
+  let threeDhpFailed = false;
+  try {
+    results = await fetch3DHPWater(lat, lon);
+  } catch {
+    threeDhpFailed = true;
+  }
+  if (results.length === 0) {
+    try {
+      results = await fetchNearbyWater(lat, lon);
+    } catch (osmErr) {
+      if (threeDhpFailed) {
+        // Both the primary and fallback source failed to be reached at all.
+        throw new Error("We couldn't reach the water-data service right now. Try again in a moment.");
+      }
+      // 3DHP succeeded with zero results and Overpass errored — treat as zero results, not a service failure.
+    }
+  }
+  return results;
+}
+
 export default function NovaCastRecon({ onBack, waterBodies }: Props) {
   const [reconState, setReconState] = useState<ReconState>('gate');
   const [userPos, setUserPos] = useState<{ lat: number; lon: number } | null>(null);
@@ -86,12 +141,22 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const lat = pos.coords.latitude, lon = pos.coords.longitude;
       setUserPos({ lat, lon });
+      if (typeof navigator.onLine === 'boolean' && !navigator.onLine) {
+        setError('Your device appears to be offline.');
+        setReconState('gate');
+        return;
+      }
       try {
-        const results = await fetchNearbyWater(lat, lon);
+        const results = await discoverNearbyWater(lat, lon);
+        if (results.length === 0) {
+          setError('No nearby waterbodies were found.');
+          setReconState('gate');
+          return;
+        }
         setNearby(results);
         setReconState('map');
       } catch (err) {
-        setError(err instanceof Error && err.message ? err.message : "Couldn't reach map data. Try again.");
+        setError(err instanceof Error && err.message ? err.message : "We couldn't reach the water-data service right now. Try again in a moment.");
         setReconState('gate');
       }
     }, () => {
@@ -103,7 +168,14 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
   const searchManual = useCallback(async () => {
     if (!manualQuery.trim()) return;
     setManualLoading(true); setError('');
+    if (typeof navigator.onLine === 'boolean' && !navigator.onLine) {
+      setError('Your device appears to be offline.');
+      setManualLoading(false);
+      return;
+    }
     try {
+      // Place search only resolves text -> coordinates. Waterbody discovery
+      // for those coordinates is a separate step below, same as the GPS path.
       const geoRes = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(manualQuery)}&limit=1`, { headers: { Accept: 'application/json' } }, 15000);
       if (!geoRes.ok) {
         throw new Error(geoRes.status === 429
@@ -114,11 +186,16 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
       if (!geoData.length) { setError("Couldn't find that place. Try a different search."); setManualLoading(false); return; }
       const lat = parseFloat(geoData[0].lat), lon = parseFloat(geoData[0].lon);
       setUserPos({ lat, lon });
-      const results = await fetchNearbyWater(lat, lon);
+      const results = await discoverNearbyWater(lat, lon);
+      if (results.length === 0) {
+        setError('No nearby waterbodies were found.');
+        setManualLoading(false);
+        return;
+      }
       setNearby(results);
       setReconState('map');
     } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : 'Search failed. Try again.');
+      setError(err instanceof Error && err.message ? err.message : "We couldn't reach the water-data service right now. Try again in a moment.");
     }
     setManualLoading(false);
   }, [manualQuery]);
@@ -156,6 +233,22 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
       nearby.forEach(w => {
         const curated = findCurated(w.lat, w.lon);
         const color = curated ? '#7CCBE8' : '#4A6878';
+        const isSelected = selected === w;
+
+        // 3DHP results carry real polygon geometry — draw the actual waterbody
+        // outline, not just a point. OSM fallback results stay point markers.
+        if (w.geometry) {
+          const layer = L.geoJSON(w.geometry, {
+            style: {
+              color, weight: isSelected ? 3 : 1.5,
+              fillColor: color, fillOpacity: isSelected ? 0.35 : 0.18,
+            },
+          }).addTo(mapInstance.current);
+          layer.on('click', () => setSelected(w));
+          markersRef.current.push(layer);
+          return;
+        }
+
         const icon = L.divIcon({
           className: '',
           html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #060b10;"></div>`,
@@ -260,7 +353,10 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
             <div className="font-semibold text-sm text-[#C8E4F0]">{selected.name}</div>
             <button onClick={() => setSelected(null)} className="text-[#4A6878] hover:text-[#BAE8FF]"><X className="w-4 h-4" /></button>
           </div>
-          <div className="text-xs text-[#7CCBE8] mb-3">{selected.distance.toFixed(1)} mi away · {selected.type}</div>
+          <div className="text-xs text-[#7CCBE8] mb-3">
+            {selected.distance.toFixed(1)} mi away · {selected.type}
+            {typeof selected.areaAcres === 'number' && selected.areaAcres > 0 && <> · approx. {selected.areaAcres < 10 ? selected.areaAcres.toFixed(1) : Math.round(selected.areaAcres)} acres</>}
+          </div>
 
           {curatedSelected ? (
             <>
@@ -296,7 +392,10 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
                 {w.name}
                 {curated && <span className="w-1.5 h-1.5 rounded-full bg-[#7CCBE8]" />}
               </div>
-              <div className="text-[11px] text-[#4A6878]">{w.type}</div>
+              <div className="text-[11px] text-[#4A6878]">
+                {w.type}
+                {typeof w.areaAcres === 'number' && w.areaAcres > 0 && <> · approx. {w.areaAcres < 10 ? w.areaAcres.toFixed(1) : Math.round(w.areaAcres)} acres</>}
+              </div>
             </div>
             <div className="text-xs text-[#7CCBE8]">{w.distance.toFixed(1)} mi</div>
           </button>
