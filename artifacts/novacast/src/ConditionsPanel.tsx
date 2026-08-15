@@ -31,7 +31,7 @@ const PILL_GROUPS: PillGroup[] = [
       { value: 'catfish', label: 'Catfish' },
       { value: 'crappie', label: 'Crappie' },
       { value: 'bluegill', label: 'Bluegill' },
-      { value: 'trout', label: 'Trout' },
+      { value: 'smallmouth', label: 'Smallmouth' },
       { value: 'anything', label: 'Anything' },
     ],
   },
@@ -49,10 +49,12 @@ const PILL_GROUPS: PillGroup[] = [
     key: 'time',
     label: 'Time of Day',
     options: [
+      { value: 'night', label: 'Night' },
+      { value: 'dawn', label: 'Dawn' },
       { value: 'morning', label: 'Morning' },
       { value: 'midday', label: 'Midday' },
+      { value: 'afternoon', label: 'Afternoon' },
       { value: 'evening', label: 'Evening' },
-      { value: 'night', label: 'Night' },
     ],
   },
   {
@@ -72,7 +74,7 @@ const PILL_GROUPS: PillGroup[] = [
       { value: 'clear', label: 'Clear' },
       { value: 'stained', label: 'Stained' },
       { value: 'murky', label: 'Murky' },
-      { value: 'muddy', label: 'Muddy' },
+      { value: 'green', label: 'Green / Algae' },
     ],
   },
   {
