@@ -148,8 +148,8 @@ export interface NearbyWaterFeature {
 
 export async function queryNearbyWater(lat: number, lon: number, radiusMeters: number): Promise<{ features: NearbyWaterFeature[]; layerId: number }> {
   const layer = await discoverWaterbodyLayer();
-  const nameField = pickField(layer.fields, [/^gnis_?name$/i, /^name$/i, /name/i]);
-  const typeField = pickField(layer.fields, [/^ftype$/i, /^f_?type$/i, /featuretype/i, /^type$/i]);
+  const nameField = pickField(layer.fields, [/^gnis_?name$/i, /^name$/i, /^gnisidlabel$/i, /name/i]);
+  const typeField = pickField(layer.fields, [/^ftype$/i, /^f_?type$/i, /^featuretypelabel$/i, /typelabel/i, /featuretype/i, /^type$/i]);
 
   const qs = new URLSearchParams({
     f: 'geojson',
