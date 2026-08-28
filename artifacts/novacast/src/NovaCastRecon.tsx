@@ -216,8 +216,6 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
           attribution: '&copy; OpenStreetMap contributors',
           maxZoom: 18,
         }).addTo(mapInstance.current);
-      } else {
-        mapInstance.current.setView([userPos.lat, userPos.lon], 12);
       }
 
       markersRef.current.forEach(m => m.remove());
@@ -230,38 +228,52 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
       });
       L.marker([userPos.lat, userPos.lon], { icon: userIcon }).addTo(mapInstance.current);
 
+      let selectedBounds: any = null;
+
       nearby.forEach(w => {
         const curated = findCurated(w.lat, w.lon);
-        const color = curated ? '#7CCBE8' : '#4A6878';
         const isSelected = selected === w;
+        const color = isSelected ? '#E6B45A' : (curated ? '#7CCBE8' : '#4A6878');
 
         // 3DHP results carry real polygon geometry — draw the actual waterbody
         // outline, not just a point. OSM fallback results stay point markers.
         if (w.geometry) {
           const layer = L.geoJSON(w.geometry, {
             style: {
-              color, weight: isSelected ? 3 : 1.5,
-              fillColor: color, fillOpacity: isSelected ? 0.35 : 0.18,
+              color, weight: isSelected ? 3.5 : 1.5,
+              fillColor: color, fillOpacity: isSelected ? 0.4 : 0.18,
             },
           }).addTo(mapInstance.current);
           layer.on('click', () => setSelected(w));
           markersRef.current.push(layer);
+          if (isSelected) selectedBounds = layer.getBounds();
           return;
         }
 
+        const size = isSelected ? 18 : 12;
         const icon = L.divIcon({
           className: '',
-          html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #060b10;"></div>`,
-          iconSize: [12, 12],
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #060b10;${isSelected ? `box-shadow:0 0 10px ${color};` : ''}"></div>`,
+          iconSize: [size, size],
         });
         const marker = L.marker([w.lat, w.lon], { icon }).addTo(mapInstance.current);
         marker.on('click', () => setSelected(w));
         markersRef.current.push(marker);
       });
+
+      // Frame the selected waterbody: fit its polygon bounds when we have
+      // real geometry, otherwise just center on its point.
+      if (selected) {
+        if (selectedBounds) {
+          mapInstance.current.fitBounds(selectedBounds, { padding: [50, 50], maxZoom: 16 });
+        } else if (typeof selected.lat === 'number' && typeof selected.lon === 'number') {
+          mapInstance.current.setView([selected.lat, selected.lon], Math.max(mapInstance.current.getZoom(), 14));
+        }
+      }
     })();
 
     return () => { cancelled = true; };
-  }, [reconState, userPos, nearby]);
+  }, [reconState, userPos, nearby, selected]);
 
   useEffect(() => {
     return () => { if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; } };
@@ -357,6 +369,13 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
             {selected.distance.toFixed(1)} mi away · {selected.type}
             {typeof selected.areaAcres === 'number' && selected.areaAcres > 0 && <> · approx. {selected.areaAcres < 10 ? selected.areaAcres.toFixed(1) : Math.round(selected.areaAcres)} acres</>}
           </div>
+
+          <button
+            onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lon}`, '_blank')}
+            className="flex items-center gap-1.5 text-xs text-[#7CCBE8] hover:text-[#BAE8FF] transition-colors cursor-pointer bg-transparent border-none p-0 mb-3"
+          >
+            <Navigation className="w-3.5 h-3.5" /> Get Directions
+          </button>
 
           {curatedSelected ? (
             <>
