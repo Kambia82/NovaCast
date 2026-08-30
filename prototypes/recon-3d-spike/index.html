@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>NovaCast Recon — 3D Maps Spike (isolated, not production)</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#060b10; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; overflow:hidden; }
+  #map3d { position:absolute; inset:0; width:100%; height:100%; display:none; }
+  #setup { position:absolute; inset:0; z-index:50; background:#060b10; color:#C8E4F0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; box-sizing:border-box; text-align:center; }
+  #setup h1 { font-size:20px; font-weight:700; color:#BAE8FF; margin:0 0 4px; }
+  #setup input { width:100%; max-width:340px; padding:12px; border-radius:8px; border:1px solid #1A3346; background:#0c1822; color:#C8E4F0; font-size:14px; box-sizing:border-box; }
+  #setup button { padding:12px 20px; border-radius:8px; border:none; background:#7CCBE8; color:#060b10; font-weight:700; cursor:pointer; font-size:14px; }
+  .hint { font-size:11px; color:#4A6878; max-width:340px; line-height:1.5; }
+  #hud { position:absolute; top:0; left:0; right:0; z-index:40; padding:8px 10px; background:rgba(6,11,16,0.8); color:#7CCBE8; font-size:11px; line-height:1.5; font-family:monospace; display:none; pointer-events:none; }
+  #controls { position:absolute; bottom:0; left:0; right:0; z-index:40; padding:10px; display:none; gap:6px; flex-wrap:wrap; background:rgba(6,11,16,0.85); }
+  #controls button { flex:1; min-width:64px; padding:10px 4px; border-radius:8px; border:1px solid #1A3346; background:#0c1822; color:#C8E4F0; font-size:10px; cursor:pointer; }
+  #controls button.active { background:#7CCBE8; color:#060b10; border-color:#7CCBE8; }
+  #err { position:absolute; bottom:64px; left:10px; right:10px; z-index:45; background:rgba(252,129,129,0.15); border:1px solid #FC8181; color:#FC8181; padding:10px; border-radius:8px; font-size:11px; line-height:1.4; display:none; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1>NovaCast Recon — 3D Spike</h1>
+  <div class="hint">Isolated test page. Not wired into the NovaCast app, not deployed, no production code touched.
+  Enter a Google Maps Platform API key (Maps JavaScript API enabled, billing on) and a Map ID configured for 3D
+  in Cloud Console → Map Management.</div>
+  <input id="keyInput" placeholder="Google Maps API key" autocomplete="off" autocapitalize="off" spellcheck="false" />
+  <input id="mapIdInput" placeholder="Map ID (configured for 3D)" autocomplete="off" autocapitalize="off" spellcheck="false" />
+  <button id="loadBtn">Load 3D Map</button>
+  <div class="hint">Saved only in this browser's localStorage. Sent only directly to Google, never anywhere else.</div>
+</div>
+
+<div id="hud"></div>
+<gmp-map-3d id="map3d"></gmp-map-3d>
+<div id="err"></div>
+<div id="controls">
+  <button data-mode="SATELLITE">Satellite</button>
+  <button data-mode="HYBRID">Hybrid</button>
+  <button id="selectBtn">Select Marker</button>
+  <button id="resetBtn">Reset View</button>
+</div>
+
+<script>
+  // Known NovaCast test location: Horseshoe Lake, Madison County IL
+  // (~10mi NE of downtown St. Louis, greater STL metro) — the same lake
+  // verified live against USGS 3DHP in commit a84228f. Roughly centered
+  // over open water.
+  var TEST_CENTER = { lat: 38.6900, lng: -90.0870 };
+  // Simulated "NovaCast discovered this water" point — NOT a real
+  // discoverNearbyWater()/3DHP result, just a fixed test coordinate.
+  var TEST_MARKER = { lat: 38.6940, lng: -90.0880 };
+  // Simulated water outline — NOT real 3DHP polygon geometry, just enough
+  // shape to prove Polygon3DElement rendering + selection styling works.
+  var TEST_POLYGON = [
+    { lat: 38.6945, lng: -90.0895 },
+    { lat: 38.6955, lng: -90.0870 },
+    { lat: 38.6935, lng: -90.0860 },
+    { lat: 38.6925, lng: -90.0885 },
+  ];
+
+  function $(id) { return document.getElementById(id); }
+  var hud = $('hud'), errBox = $('err');
+  function showErr(msg) { errBox.textContent = msg; errBox.style.display = 'block'; }
+  function log(msg) { hud.style.display = 'block'; hud.textContent = msg; }
+
+  var map3d, marker, polygon, selected = false;
+
+  // Google's official dynamic-import bootstrap loader (loads the Maps JS
+  // API script tag on demand, keyed off google.maps.importLibrary).
+  function installLoader(apiKey) {
+    (function(g){var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=function(){return h||(h=new Promise(function(f,n){return (async function(){a=m.createElement("script");e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,function(t){return "_"+t[0].toLowerCase()}),g[k]);e.set("callback",c+".maps."+q);a.src="https://maps."+c+"apis.com/maps/api/js?"+e;d[q]=f;a.onerror=function(){return h=n(Error(p+" could not load."))};a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a);})()}))};d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=function(f){for(var _len=arguments.length,n=new Array(_len>1?_len-1:0),_key=1;_key<_len;_key++){n[_key-1]=arguments[_key]}return r.add(f)&&u().then(function(){return d[l](f,...n)})};})({key: apiKey, v: "alpha"});
+  }
+
+  async function boot(apiKey, mapId) {
+    installLoader(apiKey);
+    try {
+      var maps3d = await google.maps.importLibrary("maps3d");
+      var markerLib = await google.maps.importLibrary("marker");
+      var Marker3DElement = maps3d.Marker3DElement;
+      var Polygon3DElement = maps3d.Polygon3DElement;
+      var PinElement = markerLib.PinElement;
+
+      map3d = $('map3d');
+      map3d.center = { lat: TEST_CENTER.lat, lng: TEST_CENTER.lng, altitude: 120 };
+      map3d.range = 900;
+      map3d.tilt = 65;
+      map3d.heading = 30;
+      map3d.mode = 'SATELLITE';
+      if (mapId) map3d.mapId = mapId;
+
+      map3d.style.display = 'block';
+      $('controls').style.display = 'flex';
+      $('setup').style.display = 'none';
+
+      map3d.addEventListener('gmp-camerachange', function() {
+        log('tilt ' + (map3d.tilt || 0).toFixed(0) + '° · heading ' + (map3d.heading || 0).toFixed(0) + '° · range ' + (map3d.range || 0).toFixed(0) + 'm');
+      });
+
+      var pin = new PinElement({ background: '#7CCBE8', borderColor: '#060b10', glyphColor: '#060b10' });
+      marker = new Marker3DElement({
+        position: { lat: TEST_MARKER.lat, lng: TEST_MARKER.lng, altitude: 30 },
+        altitudeMode: 'RELATIVE_TO_GROUND',
+        extruded: true,
+      });
+      marker.append(pin);
+      map3d.append(marker);
+
+      polygon = new Polygon3DElement({
+        outerCoordinates: TEST_POLYGON.map(function(p) { return { lat: p.lat, lng: p.lng, altitude: 5 }; }),
+        altitudeMode: 'RELATIVE_TO_GROUND',
+        strokeColor: '#4A6878',
+        strokeWidth: 2,
+        fillColor: 'rgba(74,104,120,0.35)',
+      });
+      map3d.append(polygon);
+
+      log('Loaded OK — tilt 65° heading 30° range 900m');
+    } catch (err) {
+      showErr('Failed to load 3D Maps: ' + (err && err.message ? err.message : err) +
+        '\n\nCheck: API key valid · Maps JavaScript API enabled · billing enabled on the project · ' +
+        'Map ID exists and is explicitly configured for 3D in Cloud Console → Map Management.');
+      console.error(err);
+    }
+  }
+
+  $('loadBtn').addEventListener('click', function() {
+    var key = $('keyInput').value.trim();
+    var mapId = $('mapIdInput').value.trim();
+    if (!key) { showErr('Enter an API key first.'); return; }
+    localStorage.setItem('novacast_3d_spike_key', key);
+    localStorage.setItem('novacast_3d_spike_mapid', mapId);
+    boot(key, mapId);
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('#controls button[data-mode]'), function(btn) {
+    btn.addEventListener('click', function() {
+      if (!map3d) return;
+      map3d.mode = btn.dataset.mode;
+      Array.prototype.forEach.call(document.querySelectorAll('#controls button[data-mode]'), function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    });
+  });
+
+  $('selectBtn').addEventListener('click', function() {
+    selected = !selected;
+    $('selectBtn').classList.toggle('active', selected);
+    $('selectBtn').textContent = selected ? 'Deselect' : 'Select Marker';
+    if (polygon) {
+      polygon.strokeColor = selected ? '#E6B45A' : '#4A6878';
+      polygon.strokeWidth = selected ? 3.5 : 2;
+      polygon.fillColor = selected ? 'rgba(230,180,90,0.4)' : 'rgba(74,104,120,0.35)';
+    }
+    if (marker) {
+      var pin = marker.firstElementChild;
+      if (pin) {
+        pin.background = selected ? '#E6B45A' : '#7CCBE8';
+        pin.scale = selected ? 1.4 : 1.0;
+      }
+    }
+  });
+
+  $('resetBtn').addEventListener('click', function() {
+    if (!map3d) return;
+    map3d.center = { lat: TEST_CENTER.lat, lng: TEST_CENTER.lng, altitude: 120 };
+    map3d.range = 900;
+    map3d.tilt = 65;
+    map3d.heading = 30;
+  });
+
+  window.addEventListener('DOMContentLoaded', function() {
+    var params = new URLSearchParams(location.search);
+    var savedKey = params.get('key') || localStorage.getItem('novacast_3d_spike_key') || '';
+    var savedMapId = params.get('mapId') || localStorage.getItem('novacast_3d_spike_mapid') || '';
+    $('keyInput').value = savedKey;
+    $('mapIdInput').value = savedMapId;
+    if (savedKey && params.get('auto') !== '0') boot(savedKey, savedMapId);
+  });
+</script>
+</body>
+</html>
