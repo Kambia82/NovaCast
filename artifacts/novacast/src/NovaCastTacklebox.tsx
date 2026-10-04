@@ -9,10 +9,14 @@ import {
   Bug,
   Waves,
   CheckCircle2,
-  Sun,
-  Wind,
-  Eye,
+  BookMarked,
+  Plus,
+  Pencil,
 } from 'lucide-react';
+import NovaCastReferenceSection from './NovaCastReferenceSection';
+import { LIVE_BAIT, READING_WATER } from './data/reference';
+import NovaCastLearnLink from './NovaCastLearnLink';
+import type { LearnTarget } from './lib/learnLink';
 
 // ── TYPES ──────────────────────────────────────────────────────────────
 interface ExternalTacklebox {
@@ -25,6 +29,12 @@ interface NovaCastTackleboxProps {
   onBack: () => void;
   externalTacklebox: ExternalTacklebox;
   onToggleSaved: (category: 'lures' | 'colors' | 'walmart', item: string) => void;
+  /** Opens the Catch Log — this tile is "lures, spots, catches". */
+  onOpenCatchLog?: () => void;
+  /** Opens Learning focused on a saved item's topic, when one exists. */
+  onLearnTopic?: (target: LearnTarget) => void;
+  /** Lure names in the current fishing recommendation, if any — flags overlap. */
+  recommendedLures?: string[];
 }
 
 type DualView = 'saved' | 'guide';
@@ -130,43 +140,26 @@ const knotSections = [
   },
 ];
 
-const baitGroups = [
-  {
-    fish: 'Bass',
-    items: [
-      { bait: 'Minnows', rig: 'Hook through both lips for current fishing or behind the dorsal fin for natural swimming action.' },
-      { bait: 'Bluegills', rig: 'Hook behind the dorsal fin while avoiding the spine. Keep the bait lively and swimming naturally.' },
-      { bait: 'Crawfish', rig: 'Run the hook through the tail section from bottom to top so the crawfish remains active.' },
-    ],
-  },
-  {
-    fish: 'Catfish',
-    items: [
-      { bait: 'Nightcrawlers', rig: 'Thread the worm onto the hook several times, leaving a portion dangling naturally.' },
-      { bait: 'Cut Bait (Shad)', rig: 'Hook through a tough section of skin near the head or tail so it stays attached during casts.' },
-      { bait: 'Chicken Liver', rig: 'Use a bait holder hook and thread the liver securely through multiple times.' },
-    ],
-  },
-  {
-    fish: 'Panfish / Crappie',
-    items: [
-      { bait: 'Crickets', rig: 'Insert the hook under the collar behind the head without crushing the body.' },
-      { bait: 'Red Worms', rig: 'Thread part of the worm onto the hook while leaving the tail free to wiggle.' },
-    ],
-  },
-];
-
 // ── TACKLEBOX CATEGORY LABELS ──────────────────────────────────────────
 const CATEGORY_LABELS: Record<keyof ExternalTacklebox, string> = {
   lures: 'Lures',
   colors: 'Colors',
-  walmart: 'Walmart Picks',
+  walmart: 'Gear Picks',
+};
+const ADD_PLACEHOLDER: Record<keyof ExternalTacklebox, string> = {
+  lures: 'e.g. Texas-rig worm',
+  colors: 'e.g. Watermelon Red',
+  walmart: 'e.g. Rat-L-Trap 1/2 oz',
 };
 
-export default function NovaCastTacklebox({ onBack, externalTacklebox, onToggleSaved }: NovaCastTackleboxProps) {
+export default function NovaCastTacklebox({ onBack, externalTacklebox, onToggleSaved, onOpenCatchLog, onLearnTopic, recommendedLures = [] }: NovaCastTackleboxProps) {
   const [dualView, setDualView] = useState<DualView>('saved');
   const [guideTab, setGuideTab] = useState<GuideTab>('reels');
   const [openCard, setOpenCard] = useState<string | null>(null);
+  const [addingCategory, setAddingCategory] = useState<keyof ExternalTacklebox | null>(null);
+  const [addValue, setAddValue] = useState('');
+  const [editingItem, setEditingItem] = useState<{ category: keyof ExternalTacklebox; name: string } | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const toggleCard = (id: string) => setOpenCard(prev => (prev === id ? null : id));
 
@@ -181,46 +174,124 @@ export default function NovaCastTacklebox({ onBack, externalTacklebox, onToggleS
   ];
 
   // ── SAVED GEAR ─────────────────────────────────────────────────────
-  const renderSavedGear = () => {
-    if (totalSaved === 0) {
-      return (
-        <div className="text-center py-16 px-4">
-          <Heart className="w-8 h-8 text-[#1A3346] mx-auto mb-3" />
-          <div className="text-sm text-[#4A6878] leading-relaxed">
-            Nothing saved yet. Tap the heart on any lure, color, or Walmart pick in your Game Plan to save it here.
-          </div>
-        </div>
-      );
+  const startAdd = (category: keyof ExternalTacklebox) => { setAddingCategory(category); setAddValue(''); };
+  const commitAdd = (category: keyof ExternalTacklebox) => {
+    const name = addValue.trim();
+    if (name && !externalTacklebox[category].includes(name)) onToggleSaved(category, name);
+    setAddingCategory(null); setAddValue('');
+  };
+  const startEdit = (category: keyof ExternalTacklebox, name: string) => { setEditingItem({ category, name }); setEditValue(name); };
+  const commitEdit = () => {
+    if (!editingItem) return;
+    const next = editValue.trim();
+    if (next && next !== editingItem.name && !externalTacklebox[editingItem.category].includes(next)) {
+      onToggleSaved(editingItem.category, editingItem.name); // remove old
+      onToggleSaved(editingItem.category, next); // add new
     }
+    setEditingItem(null); setEditValue('');
+  };
 
+  const renderSavedGear = () => {
     const categories: (keyof ExternalTacklebox)[] = ['lures', 'colors', 'walmart'];
 
     return (
       <div className="space-y-3 pb-6">
+        {totalSaved === 0 && (
+          <div className="text-center py-10 px-4">
+            <Heart className="w-8 h-8 text-[#1A3346] mx-auto mb-3" />
+            <div className="text-sm text-[#4A6878] leading-relaxed">
+              Nothing saved yet. Tap the heart on any lure, color, or gear pick in Game Plan — or add your own below.
+            </div>
+          </div>
+        )}
         {categories.map(category => {
           const items = externalTacklebox[category];
-          if (items.length === 0) return null;
+          const isAdding = addingCategory === category;
           return (
             <div key={category} className="bg-[#0c1822] border border-[#1A3346] rounded-2xl p-4">
-              <div className="text-[10px] uppercase tracking-[2px] text-[#4A6878] font-semibold mb-3">
-                {CATEGORY_LABELS[category]}
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[10px] uppercase tracking-[2px] text-[#4A6878] font-semibold">
+                  {CATEGORY_LABELS[category]}
+                </div>
+                {!isAdding && (
+                  <button onClick={() => startAdd(category)} className="text-[10px] text-[#7CCBE8] hover:text-[#BAE8FF] font-semibold bg-transparent border-none cursor-pointer flex items-center gap-1">
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                )}
               </div>
+
+              {items.length === 0 && !isAdding && (
+                <div className="text-xs text-[#4A6878] mb-1">None saved yet.</div>
+              )}
+
               <div className="space-y-2">
-                {items.map(item => (
-                  <div
-                    key={item}
-                    className="bg-[#060b10] border border-[#1A3346] rounded-xl px-3 py-2.5 flex items-center justify-between"
-                  >
-                    <span className="text-sm text-[#C8E4F0]">{item}</span>
-                    <button
-                      onClick={() => onToggleSaved(category, item)}
-                      className="text-[#FC8181] hover:text-[#FC8181]/70 transition-colors shrink-0 ml-2"
-                      aria-label={`Remove ${item}`}
+                {items.map(item => {
+                  const editing = editingItem?.category === category && editingItem.name === item;
+                  const learnTarget = category === 'lures' ? item : '';
+                  const isCurrent = category === 'lures' && recommendedLures.includes(item);
+                  if (editing) {
+                    return (
+                      <div key={item} className="bg-[#060b10] border border-[rgba(186,232,255,0.35)] rounded-xl px-3 py-2 flex items-center gap-2">
+                        <input
+                          autoFocus
+                          value={editValue}
+                          onChange={e => setEditValue(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingItem(null); }}
+                          className="flex-1 bg-transparent text-sm text-[#C8E4F0] outline-none border-none"
+                        />
+                        <button onClick={commitEdit} className="text-[#7CCBE8] text-xs font-semibold bg-transparent border-none cursor-pointer shrink-0">Save</button>
+                        <button onClick={() => setEditingItem(null)} className="text-[#4A6878] text-xs bg-transparent border-none cursor-pointer shrink-0">Cancel</button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div
+                      key={item}
+                      className="bg-[#060b10] border border-[#1A3346] rounded-xl px-3 py-2.5"
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-[#C8E4F0] min-w-0 truncate">{item}</span>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <button onClick={() => startEdit(category, item)} className="text-[#4A6878] hover:text-[#BAE8FF] transition-colors" aria-label={`Edit ${item}`}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => onToggleSaved(category, item)}
+                            className="text-[#FC8181] hover:text-[#FC8181]/70 transition-colors"
+                            aria-label={`Remove ${item}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      {(isCurrent || (onLearnTopic && learnTarget)) && (
+                        <div className="flex items-center gap-2 mt-1.5">
+                          {isCurrent && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[rgba(124,203,232,0.15)] text-[#7CCBE8] font-semibold">
+                              MATCHES CURRENT RECOMMENDATION
+                            </span>
+                          )}
+                          {onLearnTopic && learnTarget && <NovaCastLearnLink topic={learnTarget} onLearn={onLearnTopic} />}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {isAdding && (
+                  <div className="bg-[#060b10] border border-[rgba(186,232,255,0.35)] rounded-xl px-3 py-2 flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={addValue}
+                      onChange={e => setAddValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') commitAdd(category); if (e.key === 'Escape') setAddingCategory(null); }}
+                      placeholder={ADD_PLACEHOLDER[category]}
+                      className="flex-1 bg-transparent text-sm text-[#C8E4F0] outline-none border-none placeholder-[#4A6878]"
+                    />
+                    <button onClick={() => commitAdd(category)} className="text-[#7CCBE8] text-xs font-semibold bg-transparent border-none cursor-pointer shrink-0">Save</button>
+                    <button onClick={() => setAddingCategory(null)} className="text-[#4A6878] text-xs bg-transparent border-none cursor-pointer shrink-0">Cancel</button>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           );
@@ -326,134 +397,11 @@ export default function NovaCastTacklebox({ onBack, externalTacklebox, onToggleS
     </div>
   );
 
-  const renderBait = () => (
-    <div className="space-y-2">
-      {baitGroups.map(group => {
-        const id = `bait-${group.fish}`;
-        const isOpen = openCard === id;
-        return (
-          <div key={id} className="bg-[#0c1822] border border-[#1A3346] rounded-2xl overflow-hidden">
-            <button
-              onClick={() => toggleCard(id)}
-              className="w-full flex items-center justify-between px-4 py-3.5 text-left"
-            >
-              <span className="font-semibold text-sm text-[#C8E4F0]">{group.fish}</span>
-              <ChevronDown className={`w-4 h-4 text-[#4A6878] shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isOpen && (
-              <div className="px-4 pb-4 space-y-2 border-t border-[#1A3346] pt-3">
-                {group.items.map((it, i) => (
-                  <div key={i} className="bg-[#060b10] border border-[#1A3346] rounded-xl p-3">
-                    <div className="text-xs font-semibold text-[#C8E4F0] mb-1">{it.bait}</div>
-                    <div className="text-[11px] text-[#A8C8D8] leading-relaxed">{it.rig}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  const renderReadWater = () => {
-    const sunnyOpen = openCard === 'water-sunny';
-    const windOpen = openCard === 'water-wind';
-    const clarityOpen = openCard === 'water-clarity';
-    return (
-      <div className="space-y-2">
-
-        <div className="bg-[#0c1822] border border-[#1A3346] rounded-2xl overflow-hidden">
-          <button
-            onClick={() => toggleCard('water-sunny')}
-            className="w-full flex items-center justify-between px-4 py-3.5 text-left"
-          >
-            <div className="flex items-center gap-2">
-              <Sun className="w-4 h-4 text-[#FBBF24] shrink-0" />
-              <span className="font-semibold text-sm text-[#C8E4F0]">Where To Cast When It's Sunny</span>
-            </div>
-            <ChevronDown className={`w-4 h-4 text-[#4A6878] shrink-0 transition-transform ${sunnyOpen ? 'rotate-180' : ''}`} />
-          </button>
-          {sunnyOpen && (
-            <div className="px-4 pb-4 border-t border-[#1A3346] pt-3">
-              <p className="text-xs text-[#A8C8D8] leading-relaxed">
-                Look for shade lines, docks, overhanging trees, bridge pilings, and deeper water edges.
-                Fish avoid intense sunlight much like people avoid standing in a parking lot at noon.
-                If you can find shade, you can often find fish.
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-[#0c1822] border border-[#1A3346] rounded-2xl overflow-hidden">
-          <button
-            onClick={() => toggleCard('water-wind')}
-            className="w-full flex items-center justify-between px-4 py-3.5 text-left"
-          >
-            <div className="flex items-center gap-2">
-              <Wind className="w-4 h-4 text-[#7CCBE8] shrink-0" />
-              <span className="font-semibold text-sm text-[#C8E4F0]">Wind Strategy</span>
-            </div>
-            <ChevronDown className={`w-4 h-4 text-[#4A6878] shrink-0 transition-transform ${windOpen ? 'rotate-180' : ''}`} />
-          </button>
-          {windOpen && (
-            <div className="px-4 pb-4 border-t border-[#1A3346] pt-3">
-              <p className="text-xs text-[#A8C8D8] leading-relaxed">
-                Wind pushes plankton and baitfish toward shore. Predator fish often follow.
-                Focus on wind-blown banks and points. Cast into, across, or along the windward
-                shoreline whenever practical.
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-[#0c1822] border border-[#1A3346] rounded-2xl overflow-hidden">
-          <button
-            onClick={() => toggleCard('water-clarity')}
-            className="w-full flex items-center justify-between px-4 py-3.5 text-left"
-          >
-            <div className="flex items-center gap-2">
-              <Eye className="w-4 h-4 text-[#BAE8FF] shrink-0" />
-              <span className="font-semibold text-sm text-[#C8E4F0]">Water Clarity Rule</span>
-            </div>
-            <ChevronDown className={`w-4 h-4 text-[#4A6878] shrink-0 transition-transform ${clarityOpen ? 'rotate-180' : ''}`} />
-          </button>
-          {clarityOpen && (
-            <div className="px-4 pb-4 border-t border-[#1A3346] pt-3 space-y-2">
-              <div className="bg-[#060b10] border border-[#1A3346] rounded-xl p-3">
-                <div className="text-xs font-semibold text-[#4ADE80] mb-2">Clear Water</div>
-                <ul className="space-y-1">
-                  {['Natural bait colors', 'Smaller presentations', 'Quiet approaches', 'Less vibration and noise'].map(item => (
-                    <li key={item} className="text-[11px] text-[#A8C8D8] flex items-start gap-1.5">
-                      <span className="text-[#4A6878] mt-0.5">•</span> {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="bg-[#060b10] border border-[#1A3346] rounded-xl p-3">
-                <div className="text-xs font-semibold text-[#FB923C] mb-2">Dirty / Stained Water</div>
-                <ul className="space-y-1">
-                  {['Bright colors and chartreuse', 'Black/blue contrast patterns', 'Rattles and vibration', 'Larger profile lures'].map(item => (
-                    <li key={item} className="text-[11px] text-[#A8C8D8] flex items-start gap-1.5">
-                      <span className="text-[#4A6878] mt-0.5">•</span> {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-[rgba(186,232,255,0.07)] border border-[rgba(186,232,255,0.15)] rounded-2xl px-4 py-3.5">
-          <p className="text-xs text-[#BAE8FF] leading-relaxed">
-            <span className="font-semibold">Quick Rule:</span> If fish cannot easily see your lure,
-            help them find it with vibration, noise, silhouette, or bright color.
-          </p>
-        </div>
-
-      </div>
-    );
-  };
+  // Live-bait and Read-Water content now comes from the shared, typed
+  // data/reference.ts (consolidation — blueprint §16). The Reels and Knots
+  // guides below still have their own data and should be migrated next.
+  const renderBait = () => <NovaCastReferenceSection section={LIVE_BAIT} showBlurb={false} />;
+  const renderReadWater = () => <NovaCastReferenceSection section={READING_WATER} showBlurb={false} />;
 
   const renderFieldGuide = () => (
     <div className="pb-6">
@@ -516,6 +464,15 @@ export default function NovaCastTacklebox({ onBack, externalTacklebox, onToggleS
           <Disc className="w-3.5 h-3.5" /> Field Guide
         </button>
       </div>
+
+      {dualView === 'saved' && onOpenCatchLog && (
+        <button
+          onClick={onOpenCatchLog}
+          className="w-full mb-3 py-3 bg-[#0c1822] border border-[#1A3346] rounded-2xl text-[#7CCBE8] text-sm font-semibold flex items-center justify-center gap-2 hover:border-[rgba(186,232,255,0.3)] transition-all"
+        >
+          <BookMarked className="w-4 h-4" /> Your Catch Log
+        </button>
+      )}
 
       {dualView === 'saved' ? renderSavedGear() : renderFieldGuide()}
     </div>

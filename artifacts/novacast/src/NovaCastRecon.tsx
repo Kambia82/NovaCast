@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Navigation, MapPin, ChevronLeft, Search, Info, X } from 'lucide-react';
+import { Navigation, MapPin, ChevronLeft, Search, Info, X, Fish } from 'lucide-react';
+import { GEO_OPTS, geoErrorMessage, geoPreflightError } from './lib/geo';
 
 interface CuratedWaterBody {
   key: string;
@@ -17,9 +18,26 @@ interface OsmWaterBody {
   geometry?: any;
 }
 
+/**
+ * Handed up when the angler commits to a waterbody from Recon. `curatedKey` is
+ * set only when the selected water matches a record in NovaCast's own `waters`
+ * database — the rest of the app uses it to resolve species / spots / regs.
+ */
+export interface ReconSelection {
+  name: string;
+  lat: number;
+  lon: number;
+  type: string;
+  areaAcres: number | null;
+  curatedKey: string | null;
+  source: 'osm' | '3dhp' | 'curated';
+}
+
 interface Props {
   onBack: () => void;
   waterBodies: CuratedWaterBody[];
+  /** Carry the chosen waterbody into Game Plan / On the Bank (blueprint §3–4). */
+  onSelectWater?: (selection: ReconSelection) => void;
 }
 
 type ReconState = 'gate' | 'locating' | 'map' | 'manual';
@@ -73,7 +91,12 @@ async function fetchNearbyWater(lat: number, lon: number): Promise<OsmWaterBody[
 
 // NovaCast's own Cloud Function — proxies to USGS 3DHP server-side so the
 // browser never depends on that service's reachability/CORS directly.
-const NEARBY_WATER_FN_URL = 'https://us-central1-novacast-26e4c.cloudfunctions.net/nearbyWater';
+// Configurable so the current dev project's URL isn't baked into app logic
+// (blueprint §23) — deployments set VITE_NEARBY_WATER_FN_URL; this default
+// keeps today's dev deployment working unchanged when it's unset.
+const NEARBY_WATER_FN_URL =
+  (import.meta.env.VITE_NEARBY_WATER_FN_URL as string | undefined) ||
+  'https://us-central1-novacast-26e4c.cloudfunctions.net/nearbyWater';
 
 async function fetch3DHPWater(lat: number, lon: number): Promise<OsmWaterBody[]> {
   const res = await fetchWithTimeout(`${NEARBY_WATER_FN_URL}?lat=${lat}&lon=${lon}`, {}, 15000);
@@ -120,7 +143,7 @@ async function discoverNearbyWater(lat: number, lon: number): Promise<OsmWaterBo
   return results;
 }
 
-export default function NovaCastRecon({ onBack, waterBodies }: Props) {
+export default function NovaCastRecon({ onBack, waterBodies, onSelectWater }: Props) {
   const [reconState, setReconState] = useState<ReconState>('gate');
   const [userPos, setUserPos] = useState<{ lat: number; lon: number } | null>(null);
   const [nearby, setNearby] = useState<OsmWaterBody[]>([]);
@@ -131,12 +154,14 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
+  const leafletRef = useRef<any>(null);
 
   const findCurated = (lat: number, lon: number) =>
     waterBodies.find(w => w.latitude && w.longitude && calcDist(lat, lon, w.latitude, w.longitude) < 0.6);
 
   const enableLocation = useCallback(() => {
-    if (!navigator.geolocation) { setError('This device has no location support. Search manually instead.'); setReconState('manual'); return; }
+    const pre = geoPreflightError();
+    if (pre) { setError(pre); setReconState('manual'); return; }
     setReconState('locating'); setError('');
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const lat = pos.coords.latitude, lon = pos.coords.longitude;
@@ -159,10 +184,10 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
         setError(err instanceof Error && err.message ? err.message : "We couldn't reach the water-data service right now. Try again in a moment.");
         setReconState('gate');
       }
-    }, () => {
-      setError('Location was denied. You can search a place manually instead.');
+    }, (err) => {
+      setError(geoErrorMessage(err));
       setReconState('manual');
-    });
+    }, GEO_OPTS);
   }, []);
 
   const searchManual = useCallback(async () => {
@@ -209,6 +234,7 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
       await import('leaflet/dist/leaflet.css');
       const L = (await import('leaflet')).default;
       if (cancelled || !mapRef.current) return;
+      leafletRef.current = L;
 
       if (!mapInstance.current) {
         mapInstance.current = L.map(mapRef.current).setView([userPos.lat, userPos.lon], 12);
@@ -233,16 +259,12 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
       nearby.forEach(w => {
         const curated = findCurated(w.lat, w.lon);
         const color = curated ? '#7CCBE8' : '#4A6878';
-        const isSelected = selected === w;
 
         // 3DHP results carry real polygon geometry — draw the actual waterbody
         // outline, not just a point. OSM fallback results stay point markers.
         if (w.geometry) {
           const layer = L.geoJSON(w.geometry, {
-            style: {
-              color, weight: isSelected ? 3 : 1.5,
-              fillColor: color, fillOpacity: isSelected ? 0.35 : 0.18,
-            },
+            style: { color, weight: 1.5, fillColor: color, fillOpacity: 0.18 },
           }).addTo(mapInstance.current);
           layer.on('click', () => setSelected(w));
           markersRef.current.push(layer);
@@ -266,6 +288,46 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
   useEffect(() => {
     return () => { if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; } };
   }, []);
+
+  // Highlight the selected waterbody on the map and center/zoom to it.
+  // Kept separate from the draw effect above so selecting doesn't re-fetch
+  // Leaflet or rebuild every layer — it only restyles and pans.
+  useEffect(() => {
+    const L = leafletRef.current;
+    if (!mapInstance.current || !L || markersRef.current.length !== nearby.length) return;
+
+    let selectedLayer: any = null;
+    nearby.forEach((w, i) => {
+      const layer = markersRef.current[i];
+      if (!layer) return;
+      const curated = findCurated(w.lat, w.lon);
+      const color = curated ? '#7CCBE8' : '#4A6878';
+      const isSelected = selected === w;
+      if (isSelected) selectedLayer = layer;
+
+      if (typeof layer.setStyle === 'function') {
+        layer.setStyle({ color, weight: isSelected ? 3 : 1.5, fillColor: color, fillOpacity: isSelected ? 0.35 : 0.18 });
+        if (isSelected) layer.bringToFront();
+      } else if (typeof layer.setIcon === 'function') {
+        const size = isSelected ? 18 : 12;
+        layer.setIcon(L.divIcon({
+          className: '',
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid ${isSelected ? '#BAE8FF' : '#060b10'};box-shadow:${isSelected ? '0 0 8px #BAE8FF' : 'none'};"></div>`,
+          iconSize: [size, size],
+        }));
+      }
+    });
+
+    if (selectedLayer) {
+      if (typeof selectedLayer.getBounds === 'function') {
+        const bounds = selectedLayer.getBounds();
+        if (bounds.isValid()) mapInstance.current.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+      } else if (selected) {
+        mapInstance.current.setView([selected.lat, selected.lon], 15);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, nearby]);
 
   const backButton = (
     <button onClick={onBack} className="flex items-center gap-1 text-[#4A6878] hover:text-[#7CCBE8] text-xs transition-colors bg-transparent border-none cursor-pointer mb-4">
@@ -333,6 +395,19 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
   // reconState === 'map'
   const curatedSelected = selected ? findCurated(selected.lat, selected.lon) : null;
 
+  const commitSelection = () => {
+    if (!selected || !onSelectWater) return;
+    onSelectWater({
+      name: selected.name,
+      lat: selected.lat,
+      lon: selected.lon,
+      type: selected.type,
+      areaAcres: typeof selected.areaAcres === 'number' ? selected.areaAcres : null,
+      curatedKey: curatedSelected ? curatedSelected.key : null,
+      source: curatedSelected ? 'curated' : (selected.source ?? 'osm'),
+    });
+  };
+
   return (
     <div className="animate-fade-up pt-4 pb-6">
       <div className="flex items-center justify-between mb-3">
@@ -379,6 +454,25 @@ export default function NovaCastRecon({ onBack, waterBodies }: Props) {
               <span>Not in our verified database yet. Public map data only gives us the outline — not depth, species, or regulations. That data comes from anglers curating it directly.</span>
             </div>
           )}
+
+          <div className="flex gap-2 mt-3">
+            {onSelectWater && (
+              <button
+                onClick={commitSelection}
+                className="flex-1 py-2.5 bg-[rgba(186,232,255,0.12)] border border-[rgba(186,232,255,0.4)] rounded-xl text-[#BAE8FF] text-xs font-semibold flex items-center justify-center gap-2 hover:bg-[rgba(186,232,255,0.18)] transition-all"
+              >
+                <Fish className="w-3.5 h-3.5" /> Fish Here
+              </button>
+            )}
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lon}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 py-2.5 bg-[rgba(186,232,255,0.06)] border border-[#1A3346] rounded-xl text-[#7CCBE8] text-xs font-semibold flex items-center justify-center gap-2 hover:bg-[rgba(186,232,255,0.1)] hover:border-[rgba(186,232,255,0.3)] transition-all no-underline"
+            >
+              <Navigation className="w-3.5 h-3.5" /> Directions
+            </a>
+          </div>
         </div>
       )}
 

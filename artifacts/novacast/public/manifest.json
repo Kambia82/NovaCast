@@ -1,13 +1,20 @@
 {
   "name": "NovaCast",
   "short_name": "NovaCast",
-  "description": "Fishing guide and lure recommendations",
+  "description": "NovaCast — your beginner-friendly fishing mentor. Find water, get a game plan, learn as you go.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0d1b2a",
   "theme_color": "#0d1b2a",
   "orientation": "portrait",
   "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",

@@ -6,6 +6,7 @@ import {
   Navigation, Cloud, RefreshCw, Thermometer, Wind, Droplets,
   ChevronLeft, MapPin, ExternalLink, Search,
 } from 'lucide-react';
+import { GEO_OPTS, geoErrorMessage, geoPreflightError } from './lib/geo';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -174,7 +175,8 @@ export default function NovaCastWizard({ onComplete, waterBodies = [], customLak
   };
 
   const findNearMe = useCallback(() => {
-    if (!navigator.geolocation) { setGpsError('Location not supported on this device.'); return; }
+    const pre = geoPreflightError();
+    if (pre) { setGpsError(pre); return; }
     setGpsLoading(true); setGpsError(''); setGpsUsed(false); setNearbyResults([]);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -185,8 +187,8 @@ export default function NovaCastWizard({ onComplete, waterBodies = [], customLak
         setGpsUsed(true);
         setGpsLoading(false);
       },
-      () => { setGpsError('Location permission denied. Try city search instead.'); setGpsLoading(false); },
-      { timeout: 8000, maximumAge: 60000 }
+      (err) => { setGpsError(geoErrorMessage(err)); setGpsLoading(false); },
+      GEO_OPTS
     );
   }, [waterBodies, adminLakes]);
 
@@ -224,7 +226,8 @@ export default function NovaCastWizard({ onComplete, waterBodies = [], customLak
   }, [cityInput, waterBodies, adminLakes]);
 
   const loadWeather = useCallback(() => {
-    if (!navigator.geolocation) { setWeatherStatus('Location not available.'); return; }
+    const pre = geoPreflightError();
+    if (pre) { setWeatherStatus(pre); return; }
     setWeatherLoading(true); setWeatherStatus('Getting your location...'); setWeatherLoaded('');
     navigator.geolocation.getCurrentPosition(async (pos) => {
       setWeatherStatus('Fetching weather...');
@@ -252,7 +255,7 @@ export default function NovaCastWizard({ onComplete, waterBodies = [], customLak
         setWeatherStatus('');
       } catch { setWeatherStatus("Couldn't load weather. Fill in manually."); }
       setWeatherLoading(false);
-    }, () => { setWeatherStatus('Location permission denied.'); setWeatherLoading(false); });
+    }, (err) => { setWeatherStatus(geoErrorMessage(err)); setWeatherLoading(false); }, GEO_OPTS);
   }, []);
 
   // ── STYLES ────────────────────────────────────────────────────────────────
