@@ -26,12 +26,6 @@ jobs:
       - name: Install dependencies (scoped to novacast)
         run: pnpm install --filter "@workspace/novacast..." --frozen-lockfile
 
-      - name: Debug secret (temporary, remove after diagnosing)
-        run: |
-          KEY="${{ secrets.VITE_OPENWEATHER_API_KEY }}"
-          echo "VITE_OPENWEATHER_API_KEY length: ${#KEY}"
-          echo "VITE_OPENWEATHER_API_KEY suffix: ...${KEY: -4}"
-
       - name: Create production env file
         run: |
           cat > artifacts/novacast/.env.production <<EOF
